@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="sv">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Prisjämför — Jämför grossistpriser smart</title>
+    <meta name="description"
+        content="Dra & släpp dina rabattavtal och få direkt insikt i priserna mellan grossister. Helt privat — din data lämnar aldrig din dator.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+    <!-- ═══════════════════════════════════════════════════════════
+         SCREEN 1: UPLOAD
+         ═══════════════════════════════════════════════════════════ -->
+    <div id="screen-upload" class="screen active">
+        <div class="upload-container">
+            <!-- Brand -->
+            <div class="brand">
+                <div class="brand-icon">
+                    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                        stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
+                    </svg>
+                </div>
+                <h1 class="brand-name">Prisjämför</h1>
+                <p class="brand-tagline">Jämför grossistpriser. Hitta besparingar. Förhandla smartare.</p>
+            </div>
+
+            <!-- Privacy badge -->
+            <div class="privacy-badge">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+                    <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+                </svg>
+                <span>Din data lämnar aldrig din dator</span>
+            </div>
+
+            <!-- Drop Zone -->
+            <div id="drop-zone" class="drop-zone">
+                <div class="drop-icon">
+                    <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
+                        stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                        <polyline points="17 8 12 3 7 8"></polyline>
+                        <line x1="12" y1="3" x2="12" y2="15"></line>
+                    </svg>
+                </div>
+                <p class="drop-text">Dra & släpp dina <strong>rabattavtal</strong> här</p>
+                <p class="drop-hint">Stöder Ahlsell (.txt) och Rexel (.txt/.csv) — filer detekteras automatiskt</p>
+                <button id="browse-btn" class="browse-btn">Välj filer</button>
+                <input type="file" id="file-input" multiple accept=".txt,.csv" hidden>
+            </div>
+
+            <!-- Upload feedback -->
+            <div id="upload-feedback" class="upload-feedback" style="display:none;"></div>
+
+            <!-- Supplier chips -->
+            <div id="supplier-chips" class="supplier-chips"></div>
+
+            <!-- Analyze button -->
+            <button id="analyze-btn" class="analyze-btn" disabled>Ladda upp minst 2 avtal</button>
+
+            <!-- How it works -->
+            <div class="how-it-works">
+                <h3>Hur fungerar det?</h3>
+                <div class="steps">
+                    <div class="step">
+                        <div class="step-num">1</div>
+                        <div class="step-text">
+                            <strong>Ladda upp avtal</strong>
+                            <span>Dra & släpp dina rabattavtal — ett per grossist</span>
+                        </div>
+                    </div>
+                    <div class="step">
+                        <div class="step-num">2</div>
+                        <div class="step-text">
+                            <strong>Automatisk analys</strong>
+                            <span>Vi matchar artiklar, beräknar nettopriser och jämför</span>
+                        </div>
+                    </div>
+                    <div class="step">
+                        <div class="step-num">3</div>
+                        <div class="step-text">
+                            <strong>Rapport & export</strong>
+                            <span>Se var du sparar mest och exportera till Excel</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════════
+         SCREEN 2: PROCESSING
+         ═══════════════════════════════════════════════════════════ -->
+    <div id="screen-processing" class="screen">
+        <div class="processing-container">
+            <div class="processing-animation">
+                <div class="pulse-ring"></div>
+                <div class="pulse-ring delay-1"></div>
+                <div class="pulse-ring delay-2"></div>
+                <div class="processing-icon">
+                    <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                        stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
+                    </svg>
+                </div>
+            </div>
+            <h2 class="processing-title">Analyserar priser</h2>
+            <p id="progress-step" class="processing-step">Förbereder...</p>
+            <div class="progress-bar">
+                <div id="progress-bar-fill" class="progress-bar-fill"></div>
+            </div>
+            <span id="progress-text" class="progress-text">0%</span>
+        </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════════
+         SCREEN 3: RESULTS DASHBOARD
+         ═══════════════════════════════════════════════════════════ -->
+    <div id="screen-results" class="screen">
+        <div class="results-container">
+            <!-- Top Bar -->
+            <div class="results-topbar">
+                <button id="back-btn" class="back-btn">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <polyline points="15 18 9 12 15 6"></polyline>
+                    </svg>
+                    Ny analys
+                </button>
+                <div class="topbar-brand">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
+                    </svg>
+                    Prisjämför
+                </div>
+                <button id="export-btn" class="export-btn">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                        <polyline points="7 10 12 15 17 10"></polyline>
+                        <line x1="12" y1="15" x2="12" y2="3"></line>
+                    </svg>
+                    Exportera Excel
+                </button>
+            </div>
+
+            <!-- Executive Summary -->
+            <section class="section executive-summary" id="executive-summary">
+                <div class="hero-savings-wrap">
+                    <p class="hero-pre">Total besparingspotential</p>
+                    <div id="hero-savings" class="hero-savings">0 kr</div>
+                    <p id="hero-savings-label" class="hero-label"></p>
+                </div>
+                <div class="hero-meta">
+                    <span class="hero-winner-label">Billigast totalt:</span>
+                    <span id="hero-winner" class="hero-winner-badge">—</span>
+                </div>
+                <p id="hero-insight" class="hero-insight"></p>
+                <div id="summary-stats" class="summary-stats"></div>
+                <div id="excluded-stats" class="excluded-stats"></div>
+            </section>
+
+            <!-- Savings Breakdown -->
+            <section class="section" id="savings-section">
+                <h2 class="section-title">Leverantörsjämförelse</h2>
+                <div id="savings-cards" class="savings-cards"></div>
+            </section>
+
+            <!-- Group Analysis -->
+            <section class="section" id="group-section">
+                <h2 class="section-title">Gruppanalys</h2>
+                <p class="section-sub">Klicka på en grupp för att filtrera artikeltabellen</p>
+                <div id="group-sort" class="group-sort"></div>
+                <div id="group-cards" class="group-cards"></div>
+            </section>
+
+            <!-- Top Opportunities -->
+            <section class="section" id="opportunities-section">
+                <h2 class="section-title">Största besparingsmöjligheterna</h2>
+                <div id="opportunities-list" class="opportunities-list"></div>
+            </section>
+
+            <!-- Negotiation -->
+            <section class="section" id="negotiation-section">
+                <h2 class="section-title">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                        <polyline points="14 2 14 8 20 8"></polyline>
+                        <line x1="16" y1="13" x2="8" y2="13"></line>
+                        <line x1="16" y1="17" x2="8" y2="17"></line>
+                    </svg>
+                    Förhandlingsunderlag
+                </h2>
+                <p class="section-sub">Ta med dessa siffror till nästa avtalsmöte</p>
+                <div id="negotiation-content" class="negotiation-content"></div>
+            </section>
+
+            <!-- Article Table -->
+            <section class="section" id="article-section">
+                <h2 class="section-title">Artikellista</h2>
+
+                <!-- Filter Bar -->
+                <div id="filter-bar" class="filter-bar">
+                    <div class="filter-row">
+                        <div class="filter-group">
+                            <label for="f-enr-search">Sök E-nummer</label>
+                            <input type="text" id="f-enr-search" placeholder="Sök...">
+                        </div>
+                        <div class="filter-group">
+                            <label for="f-diff-min">Diff % min</label>
+                            <input type="number" id="f-diff-min" placeholder="-100">
+                        </div>
+                        <div class="filter-group">
+                            <label for="f-diff-max">Diff % max</label>
+                            <input type="number" id="f-diff-max" placeholder="100">
+                        </div>
+                        <div class="filter-group">
+                            <label for="f-cheapest">Billigast</label>
+                            <select id="f-cheapest">
+                                <option value="">Alla</option>
+                            </select>
+                        </div>
+                        <div class="filter-group">
+                            <label for="f-group">Rabattgrupp</label>
+                            <input type="text" id="f-group" placeholder="t.ex. VVS01">
+                        </div>
+                        <div class="filter-actions">
+                            <button id="btn-apply-filters" class="btn-filter-apply">Filtrera</button>
+                            <button id="btn-reset-filters" class="btn-filter-reset">Rensa</button>
+                        </div>
+                    </div>
+                    <span id="filter-count" class="filter-count"></span>
+                </div>
+
+                <!-- Filtered Summary -->
+                <div id="filtered-summary" class="filtered-summary"></div>
+
+                <!-- Virtual Scroll Table -->
+                <div id="virtual-scroll-container" class="virtual-scroll-container">
+                    <table id="article-table" class="article-table">
+                        <thead>
+                            <tr>
+                                <th data-sort="enr">E-nummer</th>
+                                <th data-sort="netA" id="th-net-a">Netto A</th>
+                                <th data-sort="netB" id="th-net-b">Netto B</th>
+                                <th data-sort="diffKr">Diff (kr)</th>
+                                <th data-sort="diffPct">Diff (%)</th>
+                                <th data-sort="grpA" id="th-grp-a">Grupp A</th>
+                                <th data-sort="grpB" id="th-grp-b">Grupp B</th>
+                                <th>Enhet</th>
+                            </tr>
+                        </thead>
+                    </table>
+                    <div id="spacer-top"></div>
+                    <table class="article-table article-table-body">
+                        <tbody id="article-tbody"></tbody>
+                    </table>
+                    <div id="spacer-bottom"></div>
+                </div>
+            </section>
+        </div>
+    </div>
+
+    <!-- App Entry Point -->
+    <script type="module">
+        import { initUpload } from './upload.js';
+        import { showScreen, getResults } from './dashboard.js';
+        import { exportToExcel } from './export.js';
+        import { SUPPLIERS } from './suppliers.js';
+
+        // Initialize
+        showScreen('upload');
+        initUpload();
+
+        // Export button
+        document.getElementById('export-btn').addEventListener('click', async () => {
+            const results = getResults();
+            if (!results) return;
+            const btn = document.getElementById('export-btn');
+            btn.textContent = 'Exporterar...';
+            btn.disabled = true;
+            try {
+                await exportToExcel(results, SUPPLIERS);
+            } catch (err) {
+                console.error('Export failed:', err);
+                alert('Export misslyckades: ' + err.message);
+            } finally {
+                btn.innerHTML = `
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                    Exportera Excel
+                `;
+                btn.disabled = false;
+            }
+        });
+    </script>
+</body>
+
+</html>
