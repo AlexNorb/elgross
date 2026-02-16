@@ -212,12 +212,20 @@
                             <input type="text" id="f-enr-search" placeholder="Sök...">
                         </div>
                         <div class="filter-group">
-                            <label for="f-diff-min">Diff % min</label>
-                            <input type="number" id="f-diff-min" placeholder="-100">
+                            <label for="f-diff-min">Markup % min</label>
+                            <input type="number" id="f-diff-min" placeholder="0">
                         </div>
                         <div class="filter-group">
-                            <label for="f-diff-max">Diff % max</label>
+                            <label for="f-diff-max">Markup % max</label>
                             <input type="number" id="f-diff-max" placeholder="100">
+                        </div>
+                        <div class="filter-group">
+                            <label for="f-price-min">Pris min (kr)</label>
+                            <input type="number" id="f-price-min" placeholder="0">
+                        </div>
+                        <div class="filter-group">
+                            <label for="f-price-max">Pris max (kr)</label>
+                            <input type="number" id="f-price-max" placeholder="∞">
                         </div>
                         <div class="filter-group">
                             <label for="f-cheapest">Billigast</label>
@@ -226,14 +234,68 @@
                             </select>
                         </div>
                         <div class="filter-group">
+                            <label for="f-min-articles">Min art/grupp</label>
+                            <input type="number" id="f-min-articles" placeholder="0" min="0" value="">
+                        </div>
+                        <div class="filter-group">
                             <label for="f-group">Rabattgrupp</label>
                             <input type="text" id="f-group" placeholder="t.ex. VVS01">
+                        </div>
+                        <div class="filter-group filter-group-lookup">
+                            <label for="f-lookup-enr">Slå upp E-nr → grupp</label>
+                            <div class="lookup-row">
+                                <input type="text" id="f-lookup-enr" placeholder="E-nummer">
+                                <button id="btn-lookup-enr" class="btn-lookup" title="Hämta rabattgrupp">Hämta</button>
+                            </div>
                         </div>
                         <div class="filter-actions">
                             <button id="btn-apply-filters" class="btn-filter-apply">Filtrera</button>
                             <button id="btn-reset-filters" class="btn-filter-reset">Rensa</button>
+                            <span class="filter-separator"></span>
+                            <button id="btn-ref-direct" class="btn-preset" title="Filtrera till referensartiklar">Ref:
+                                Artiklar</button>
+                            <button id="btn-ref-groups" class="btn-preset"
+                                title="Filtrera till alla grupper i referensmall">Ref: Grupper</button>
                         </div>
                     </div>
+
+                    <!-- Favoritlista Panel -->
+                    <details id="fav-panel" class="fav-panel">
+                        <summary>Favoritlista (E-nummer)</summary>
+                        <div class="fav-body">
+                            <textarea id="fav-enr-input" class="fav-textarea"
+                                placeholder="Klistra in E-nummer, ett per rad..."></textarea>
+                            <div class="fav-actions">
+                                <label class="btn-fav-file">
+                                    📁 Ladda fil (.txt/.csv)
+                                    <input type="file" id="fav-file-input" accept=".txt,.csv" style="display:none">
+                                </label>
+                                <button id="btn-fav-clear" class="btn-fav-clear">Rensa</button>
+                            </div>
+                            <span id="fav-count" class="fav-count"></span>
+                            <details id="fav-unmatched-details" style="display:none; margin-top:5px;">
+                                <summary id="fav-unmatched-summary"
+                                    style="font-size:0.85rem; color: #ef4444; cursor:pointer;"
+                                    title="Visa saknade E-nummer">Visa saknade</summary>
+                                <div id="fav-unmatched-list"
+                                    style="font-size:0.8rem; color: var(--text-secondary); word-break: break-all; margin-top: 5px; max-height: 150px; overflow-y: auto; background: var(--bg-tertiary); padding: 5px; border-radius: 4px;">
+                                </div>
+                            </details>
+                            <div class="fav-filters">
+                                <button id="btn-fav-direct" class="btn-preset"
+                                    title="Filtrera till favoritartiklar">Fav: Artiklar</button>
+                                <button id="btn-fav-groups" class="btn-preset"
+                                    title="Filtrera till alla grupper i favoriter">Fav: Grupper</button>
+                            </div>
+                        </div>
+                    </details>
+
+                    <!-- Category Checkboxes -->
+                    <details id="cat-panel" class="cat-panel">
+                        <summary>Filtrera på E-nummer kategori</summary>
+                        <div id="cat-checkboxes" class="cat-checkboxes"></div>
+                    </details>
+
                     <span id="filter-count" class="filter-count"></span>
                 </div>
 
@@ -248,8 +310,9 @@
                                 <th data-sort="enr">E-nummer</th>
                                 <th data-sort="netA" id="th-net-a">Netto A</th>
                                 <th data-sort="netB" id="th-net-b">Netto B</th>
-                                <th data-sort="diffKr">Diff (kr)</th>
-                                <th data-sort="diffPct">Diff (%)</th>
+                                <th data-sort="bestNet">Bäst (kr)</th>
+                                <th data-sort="markupA" id="th-markup-a">A %</th>
+                                <th data-sort="markupB" id="th-markup-b">B %</th>
                                 <th data-sort="grpA" id="th-grp-a">Grupp A</th>
                                 <th data-sort="grpB" id="th-grp-b">Grupp B</th>
                                 <th>Enhet</th>

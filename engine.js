@@ -59,25 +59,24 @@ function computeNetPrices(gnpArticles, discounts) {
 
 /**
  * Compare suppliers and produce match results.
+ * Uses markup model: cheapest = 0%, others = % more expensive.
  * @param {Object} supplierData — { supplierId: Map<artNo, {list, grp, disc, net, unit}> }
- * @returns {Object} { matched[], stats, perSupplier{}, excluded{} }
+ * @returns {Object} { matched[], stats, supplierData, groups, recommendations }
  */
 function compareSuppliers(supplierData) {
     const supplierIds = Object.keys(supplierData);
     if (supplierIds.length < 2) throw new Error('Minst 2 leverantörer krävs');
 
-    // For now, we work with exactly 2 suppliers (extensible later)
     const [idA, idB] = supplierIds;
     const dataA = supplierData[idA];
     const dataB = supplierData[idB];
 
-    // Collect all article numbers
     const allArticles = new Set([...dataA.keys(), ...dataB.keys()]);
 
     const matched = [];
     let winsA = 0, winsB = 0, equal = 0;
     let unitMismatch = 0, onlyA = 0, onlyB = 0, missingAgreement = 0, zeroPrice = 0;
-    let totalDiffSum = 0;
+    let sumMaxMarkup = 0;
 
     for (const artNo of allArticles) {
         const a = dataA.get(artNo);
@@ -98,48 +97,48 @@ function compareSuppliers(supplierData) {
 
         const netA = a.net;
         const netB = b.net;
-        const diffKr = netA - netB; // positive = A more expensive
-        const refPrice = Math.max(netA, netB);
-        const diffPct = refPrice > 0 ? (diffKr / refPrice) * 100 : 0;
+        const bestNet = Math.min(netA, netB);
+        const markupA = bestNet > 0 ? ((netA - bestNet) / bestNet) * 100 : 0;
+        const markupB = bestNet > 0 ? ((netB - bestNet) / bestNet) * 100 : 0;
+        const maxMarkup = Math.max(markupA, markupB);
 
-        if (Math.abs(diffPct) < 0.01) equal++;
-        else if (diffKr > 0) winsB++;
-        else winsA++;
+        let cheapest;
+        if (Math.abs(markupA - markupB) < 0.01) { equal++; cheapest = 'equal'; }
+        else if (markupA < markupB) { winsA++; cheapest = idA; }
+        else { winsB++; cheapest = idB; }
 
-        totalDiffSum += diffPct;
+        sumMaxMarkup += maxMarkup;
 
         matched.push({
             enr: artNo,
-            netA, netB,
-            diffKr, diffPct,
+            netA, netB, bestNet,
+            markupA, markupB, maxMarkup,
             grpA: a.grp, grpB: b.grp,
             discA: a.disc, discB: b.disc,
             listA: a.list, listB: b.list,
             unit: a.unit || b.unit || '',
-            cheapest: diffKr > 0.001 ? idB : (diffKr < -0.001 ? idA : 'equal')
+            cheapest
         });
     }
 
-    // Sort by absolute diff% descending
-    matched.sort((a, b) => Math.abs(b.diffPct) - Math.abs(a.diffPct));
+    // Sort by max markup descending
+    matched.sort((a, b) => b.maxMarkup - a.maxMarkup);
 
     const totalMatched = matched.length;
-    const avgDiffPct = totalMatched > 0 ? totalDiffSum / totalMatched : 0;
+    const avgMaxMarkup = totalMatched > 0 ? sumMaxMarkup / totalMatched : 0;
 
-    // Group analysis
     const groupStats = buildGroupAnalysis(matched, supplierIds);
-
-    // Recommendations
     const recommendations = buildRecommendations(matched, supplierIds, supplierData);
 
     return {
         matched,
         supplierIds,
+        supplierData,
         stats: {
             totalMatched,
             winsA, winsB, equal,
-            avgDiffPct,
-            totalSavings: matched.reduce((sum, a) => sum + Math.abs(a.diffKr), 0)
+            avgMaxMarkup,
+            totalSavings: matched.reduce((sum, a) => sum + Math.abs(a.netA - a.netB), 0)
         },
         excluded: {
             unitMismatch,
@@ -154,6 +153,7 @@ function compareSuppliers(supplierData) {
 
 /**
  * Build per-group statistics for both suppliers.
+ * Uses markup model: avgMarkup = average max markup in each group.
  */
 function buildGroupAnalysis(matched, supplierIds) {
     const [idA, idB] = supplierIds;
@@ -161,26 +161,23 @@ function buildGroupAnalysis(matched, supplierIds) {
     const groupsB = {};
 
     matched.forEach(a => {
-        // Group by supplier A's group
         const gA = a.grpA;
-        if (!groupsA[gA]) groupsA[gA] = { count: 0, sumDiffKr: 0, sumDiffPct: 0, articles: [] };
+        if (!groupsA[gA]) groupsA[gA] = { count: 0, sumMarkup: 0, sumSavingsKr: 0, articles: [] };
         groupsA[gA].count++;
-        groupsA[gA].sumDiffKr += a.diffKr;
-        groupsA[gA].sumDiffPct += a.diffPct;
+        groupsA[gA].sumMarkup += a.maxMarkup;
+        groupsA[gA].sumSavingsKr += Math.abs(a.netA - a.netB);
         groupsA[gA].articles.push(a);
 
-        // Group by supplier B's group
         const gB = a.grpB;
-        if (!groupsB[gB]) groupsB[gB] = { count: 0, sumDiffKr: 0, sumDiffPct: 0, articles: [] };
+        if (!groupsB[gB]) groupsB[gB] = { count: 0, sumMarkup: 0, sumSavingsKr: 0, articles: [] };
         groupsB[gB].count++;
-        groupsB[gB].sumDiffKr += a.diffKr;
-        groupsB[gB].sumDiffPct += a.diffPct;
+        groupsB[gB].sumMarkup += a.maxMarkup;
+        groupsB[gB].sumSavingsKr += Math.abs(a.netA - a.netB);
         groupsB[gB].articles.push(a);
     });
 
-    // Compute averages
-    for (const g of Object.values(groupsA)) g.avgPct = g.sumDiffPct / g.count;
-    for (const g of Object.values(groupsB)) g.avgPct = g.sumDiffPct / g.count;
+    for (const g of Object.values(groupsA)) g.avgMarkup = g.sumMarkup / g.count;
+    for (const g of Object.values(groupsB)) g.avgMarkup = g.sumMarkup / g.count;
 
     return { [idA]: groupsA, [idB]: groupsB };
 }
@@ -194,59 +191,56 @@ function buildRecommendations(matched, supplierIds, supplierData) {
     const recsA = []; // Groups where A is more expensive
     const recsB = []; // Groups where B is more expensive
 
-    // Group by A's groups where B wins
     const groupsWhereALoses = {};
     matched.forEach(a => {
-        if (a.diffKr > 0) { // A more expensive
+        if (a.markupA > 0.01) { // A is more expensive
             const grp = a.grpA;
-            if (!groupsWhereALoses[grp]) groupsWhereALoses[grp] = { articles: [], totalDiffKr: 0 };
+            if (!groupsWhereALoses[grp]) groupsWhereALoses[grp] = { articles: [], totalSavingsKr: 0 };
             groupsWhereALoses[grp].articles.push(a);
-            groupsWhereALoses[grp].totalDiffKr += a.diffKr;
+            groupsWhereALoses[grp].totalSavingsKr += (a.netA - a.netB);
         }
     });
 
     for (const [grp, data] of Object.entries(groupsWhereALoses)) {
         const avgDiscA = data.articles.reduce((s, a) => s + a.discA, 0) / data.articles.length;
         const avgDiscB = data.articles.reduce((s, a) => s + a.discB, 0) / data.articles.length;
-        const avgDiffPct = data.articles.reduce((s, a) => s + a.diffPct, 0) / data.articles.length;
+        const avgMarkup = data.articles.reduce((s, a) => s + a.markupA, 0) / data.articles.length;
         recsA.push({
             group: grp,
             currentDiscount: avgDiscA,
             competitorDiscount: avgDiscB,
-            targetDiscount: avgDiscA + (avgDiffPct * avgDiscA / 100),
+            targetDiscount: avgDiscA + (avgMarkup * avgDiscA / 100),
             articleCount: data.articles.length,
-            totalImpactKr: data.totalDiffKr,
-            avgDiffPct
+            totalImpactKr: data.totalSavingsKr,
+            avgMarkup
         });
     }
 
-    // Group by B's groups where A wins
     const groupsWhereBLoses = {};
     matched.forEach(a => {
-        if (a.diffKr < 0) { // B more expensive
+        if (a.markupB > 0.01) { // B is more expensive
             const grp = a.grpB;
-            if (!groupsWhereBLoses[grp]) groupsWhereBLoses[grp] = { articles: [], totalDiffKr: 0 };
+            if (!groupsWhereBLoses[grp]) groupsWhereBLoses[grp] = { articles: [], totalSavingsKr: 0 };
             groupsWhereBLoses[grp].articles.push(a);
-            groupsWhereBLoses[grp].totalDiffKr += Math.abs(a.diffKr);
+            groupsWhereBLoses[grp].totalSavingsKr += (a.netB - a.netA);
         }
     });
 
     for (const [grp, data] of Object.entries(groupsWhereBLoses)) {
         const avgDiscA = data.articles.reduce((s, a) => s + a.discA, 0) / data.articles.length;
         const avgDiscB = data.articles.reduce((s, a) => s + a.discB, 0) / data.articles.length;
-        const avgDiffPct = data.articles.reduce((s, a) => s + Math.abs(a.diffPct), 0) / data.articles.length;
+        const avgMarkup = data.articles.reduce((s, a) => s + a.markupB, 0) / data.articles.length;
         recsB.push({
             group: grp,
             currentDiscount: avgDiscB,
             competitorDiscount: avgDiscA,
-            targetDiscount: avgDiscB + (avgDiffPct * avgDiscB / 100),
+            targetDiscount: avgDiscB + (avgMarkup * avgDiscB / 100),
             articleCount: data.articles.length,
-            totalImpactKr: data.totalDiffKr,
-            avgDiffPct
+            totalImpactKr: data.totalSavingsKr,
+            avgMarkup
         });
     }
 
-    // Sort by total impact
     recsA.sort((a, b) => b.totalImpactKr - a.totalImpactKr);
     recsB.sort((a, b) => b.totalImpactKr - a.totalImpactKr);
 
@@ -260,8 +254,8 @@ function filterArticles(matched, filters = {}) {
     return matched.filter(a => {
         if (filters.enrFrom && a.enr < filters.enrFrom) return false;
         if (filters.enrTo && a.enr > filters.enrTo) return false;
-        if (filters.diffMin !== undefined && filters.diffMin !== '' && a.diffPct < parseFloat(filters.diffMin)) return false;
-        if (filters.diffMax !== undefined && filters.diffMax !== '' && a.diffPct > parseFloat(filters.diffMax)) return false;
+        if (filters.markupMin !== undefined && filters.markupMin !== '' && a.maxMarkup < parseFloat(filters.markupMin)) return false;
+        if (filters.markupMax !== undefined && filters.markupMax !== '' && a.maxMarkup > parseFloat(filters.markupMax)) return false;
         if (filters.cheapest && a.cheapest !== filters.cheapest) return false;
         if (filters.groups && filters.groups.length > 0) {
             const grpUpper = filters.groups.map(g => g.toUpperCase());
@@ -271,6 +265,12 @@ function filterArticles(matched, filters = {}) {
             if (!filters.categories.some(prefix => a.enr.startsWith(prefix))) return false;
         }
         if (filters.searchEnr && !a.enr.includes(filters.searchEnr)) return false;
+        if (filters.priceMin !== undefined && filters.priceMin !== '') {
+            if (a.bestNet < parseFloat(filters.priceMin)) return false;
+        }
+        if (filters.priceMax !== undefined && filters.priceMax !== '') {
+            if (a.bestNet > parseFloat(filters.priceMax)) return false;
+        }
         return true;
     });
 }
@@ -280,33 +280,35 @@ function filterArticles(matched, filters = {}) {
  */
 function computeStats(articles) {
     if (articles.length === 0) {
-        return { count: 0, avgDiffPct: 0, medianDiffPct: 0, winsA: 0, winsB: 0, totalDiffKr: 0 };
+        return { count: 0, avgMaxMarkup: 0, medianMaxMarkup: 0, winsA: 0, winsB: 0, totalSavingsKr: 0 };
     }
 
-    let sumPct = 0, winsA = 0, winsB = 0, totalKr = 0;
-    const diffs = [];
+    let sumMarkup = 0, winsA = 0, winsB = 0, totalKr = 0;
+    const markups = [];
 
     articles.forEach(a => {
-        sumPct += a.diffPct;
-        diffs.push(a.diffPct);
-        totalKr += a.diffKr;
-        if (a.diffKr > 0) winsB++;
-        else if (a.diffKr < 0) winsA++;
+        sumMarkup += a.maxMarkup;
+        markups.push(a.maxMarkup);
+        totalKr += Math.abs(a.netA - a.netB);
+        if (a.cheapest !== 'equal') {
+            if (a.markupA < a.markupB) winsA++;
+            else winsB++;
+        }
     });
 
-    diffs.sort((a, b) => a - b);
-    const mid = Math.floor(diffs.length / 2);
-    const median = diffs.length % 2 === 0
-        ? (diffs[mid - 1] + diffs[mid]) / 2
-        : diffs[mid];
+    markups.sort((a, b) => a - b);
+    const mid = Math.floor(markups.length / 2);
+    const median = markups.length % 2 === 0
+        ? (markups[mid - 1] + markups[mid]) / 2
+        : markups[mid];
 
     return {
         count: articles.length,
-        avgDiffPct: sumPct / articles.length,
-        medianDiffPct: median,
+        avgMaxMarkup: sumMarkup / articles.length,
+        medianMaxMarkup: median,
         winsA,
         winsB,
-        totalDiffKr: totalKr
+        totalSavingsKr: totalKr
     };
 }
 

@@ -39,7 +39,7 @@ async function exportToExcel(results, SUPPLIERS) {
         ['Prisjämförelse — Sammanfattning'],
         [],
         ['Matchade artiklar', results.stats.totalMatched],
-        ['Snitt prisskillnad', results.stats.avgDiffPct.toFixed(2) + '%'],
+        ['Snitt markup', results.stats.avgMaxMarkup.toFixed(1) + '%'],
         [`${supA.name} billigare`, results.stats.winsA],
         [`${supB.name} billigare`, results.stats.winsB],
         ['Samma pris', results.stats.equal],
@@ -60,8 +60,9 @@ async function exportToExcel(results, SUPPLIERS) {
         'E-nummer',
         `${supA.name} Netto`,
         `${supB.name} Netto`,
-        'Diff (kr)',
-        'Diff (%)',
+        'Bäst pris (kr)',
+        `${supA.name} Markup (%)`,
+        `${supB.name} Markup (%)`,
         `${supA.name} Grupp`,
         `${supB.name} Grupp`,
         'Enhet',
@@ -72,8 +73,9 @@ async function exportToExcel(results, SUPPLIERS) {
         a.enr,
         Math.round(a.netA * 100) / 100,
         Math.round(a.netB * 100) / 100,
-        Math.round(a.diffKr * 100) / 100,
-        Math.round(a.diffPct * 100) / 100,
+        Math.round(a.bestNet * 100) / 100,
+        Math.round(a.markupA * 100) / 100,
+        Math.round(a.markupB * 100) / 100,
         a.grpA,
         a.grpB,
         a.unit,
@@ -82,15 +84,15 @@ async function exportToExcel(results, SUPPLIERS) {
 
     const wsArticles = xlsx.utils.aoa_to_sheet([articleHeaders, ...articleRows]);
     wsArticles['!cols'] = [
-        { wch: 12 }, { wch: 14 }, { wch: 14 }, { wch: 12 },
-        { wch: 10 }, { wch: 14 }, { wch: 14 }, { wch: 8 }, { wch: 12 }
+        { wch: 12 }, { wch: 14 }, { wch: 14 }, { wch: 14 },
+        { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 8 }, { wch: 12 }
     ];
     xlsx.utils.book_append_sheet(wb, wsArticles, 'Artiklar');
 
     // ── Sheet 3: Group Analysis ───────────────────────
     const groupHeaders = [
         'Rabattgrupp', 'Leverantör', 'Antal artiklar',
-        'Snitt diff (%)', 'Total diff (kr)'
+        'Snitt markup (%)', 'Total besparing (kr)'
     ];
     const groupRows = [];
 
@@ -101,14 +103,14 @@ async function exportToExcel(results, SUPPLIERS) {
                 grp,
                 sup.name,
                 data.count,
-                Math.round(data.avgPct * 100) / 100,
-                Math.round(data.sumDiffKr)
+                Math.round(data.avgMarkup * 100) / 100,
+                Math.round(data.sumSavingsKr)
             ]);
         }
     }
 
-    // Sort by absolute total diff
-    groupRows.sort((a, b) => Math.abs(b[4]) - Math.abs(a[4]));
+    // Sort by total savings descending
+    groupRows.sort((a, b) => b[4] - a[4]);
 
     const wsGroups = xlsx.utils.aoa_to_sheet([groupHeaders, ...groupRows]);
     wsGroups['!cols'] = [

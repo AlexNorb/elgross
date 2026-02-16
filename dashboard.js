@@ -7,6 +7,13 @@ let currentResults = null;
 let currentFiltered = null;
 let sortColumn = null;
 let sortAsc = true;
+let referensEnr = null; // Set of reference E-nummers
+let refFilterMode = null; // null | 'direct' | 'groups'
+let refGroupsList = []; // groups derived from ref articles
+let minArticlesPerGroup = 0; // minimum articles per group threshold
+let favEnrSet = null;       // Set of favourite E-nummers (validated)
+let favFilterMode = null;   // null | 'direct' | 'groups'
+let favGroupsList = [];     // groups derived from fav E-nummers
 
 // ── Screen Management ──────────────────────────────────────────────
 
@@ -39,9 +46,12 @@ function renderDashboard(results) {
   // Negotiation Recommendations
   renderNegotiation(results, supA, supB, idA, idB);
 
+  // Load referensmall
+  loadReferensMall();
+
   // Article Table (initial: all matched)
   setupFilters(results, idA, idB);
-  applyFilters();
+  applyAllSections();
 
   // Back button
   const backBtn = document.getElementById('back-btn');
@@ -55,7 +65,7 @@ function renderDashboard(results) {
 function renderExecutiveSummary(results, supA, supB) {
   const { stats, excluded } = results;
   const totalSavings = stats.totalSavings;
-  const winner = stats.avgDiffPct > 0 ? supB : supA;
+  const winner = stats.winsA >= stats.winsB ? supA : supB;
 
   // Hero number
   document.getElementById('hero-savings').textContent =
@@ -70,9 +80,9 @@ function renderExecutiveSummary(results, supA, supB) {
 
   // Win percentage
   const totalCompared = stats.winsA + stats.winsB + stats.equal;
-  const winnerPct = stats.avgDiffPct > 0
-    ? ((stats.winsB / totalCompared) * 100).toFixed(0)
-    : ((stats.winsA / totalCompared) * 100).toFixed(0);
+  const winnerPct = stats.winsA >= stats.winsB
+    ? ((stats.winsA / totalCompared) * 100).toFixed(0)
+    : ((stats.winsB / totalCompared) * 100).toFixed(0);
   document.getElementById('hero-insight').textContent =
     `${winner.name} är billigare på ${winnerPct}% av artiklarna`;
 
@@ -84,8 +94,8 @@ function renderExecutiveSummary(results, supA, supB) {
       <div class="stat-label">Matchade artiklar</div>
     </div>
     <div class="stat-card">
-      <div class="stat-value ${stats.avgDiffPct > 0 ? 'text-red' : 'text-green'}">${stats.avgDiffPct.toFixed(2)}%</div>
-      <div class="stat-label">Snitt prisskillnad</div>
+      <div class="stat-value">${stats.avgMaxMarkup.toFixed(1)}%</div>
+      <div class="stat-label">Snitt markup</div>
     </div>
     <div class="stat-card">
       <div class="stat-value" style="color:${supA.color}">${stats.winsA.toLocaleString('sv-SE')}</div>
@@ -126,7 +136,7 @@ function renderSavingsBreakdown(results, supA, supB, idA, idB) {
     const pct = totalCompared > 0 ? (wins / totalCompared * 100).toFixed(1) : 0;
     const savingsKr = matched
       .filter(a => a.cheapest === id)
-      .reduce((sum, a) => sum + Math.abs(a.diffKr), 0);
+      .reduce((sum, a) => sum + Math.abs(a.netA - a.netB), 0);
 
     const card = document.createElement('div');
     card.className = 'savings-card';
@@ -161,7 +171,7 @@ function renderGroupAnalysis(results, supA, supB, idA, idB) {
   const sortBar = document.getElementById('group-sort');
   if (sortBar) {
     sortBar.innerHTML = `
-      <button class="sort-btn active" data-sort="impact">Störst besparing</button>
+      <button class="sort-btn active" data-sort="score">Impact score</button>
       <button class="sort-btn" data-sort="count">Flest artiklar</button>
       <button class="sort-btn" data-sort="pct">Högst % skillnad</button>
     `;
@@ -174,7 +184,7 @@ function renderGroupAnalysis(results, supA, supB, idA, idB) {
     });
   }
 
-  renderGroupCards(results, supA, supB, idA, idB, 'impact');
+  renderGroupCards(results, supA, supB, idA, idB, 'score');
 }
 
 function renderGroupCards(results, supA, supB, idA, idB, sortBy) {
@@ -189,18 +199,27 @@ function renderGroupCards(results, supA, supB, idA, idB, sortBy) {
 
   let entries = [...allGroups.entries()];
 
+  // Filter by min articles
+  if (minArticlesPerGroup > 0) {
+    entries = entries.filter(([, d]) => d.count >= minArticlesPerGroup);
+  }
+
   // Sort
-  if (sortBy === 'impact') {
-    entries.sort((a, b) => Math.abs(b[1].sumDiffKr) - Math.abs(a[1].sumDiffKr));
+  if (sortBy === 'score') {
+    // Impact score: count × avgMarkup — balances volume and magnitude
+    entries.sort((a, b) => (b[1].count * b[1].avgMarkup) - (a[1].count * a[1].avgMarkup));
   } else if (sortBy === 'count') {
     entries.sort((a, b) => b[1].count - a[1].count);
   } else if (sortBy === 'pct') {
-    entries.sort((a, b) => Math.abs(b[1].avgPct) - Math.abs(a[1].avgPct));
+    entries.sort((a, b) => b[1].avgMarkup - a[1].avgMarkup);
   }
 
   // Show top 20
   entries.slice(0, 20).forEach(([grp, data]) => {
-    const winner = data.avgPct > 0 ? supB : supA;
+    // Determine which supplier wins more often in this group
+    let wA = 0, wB = 0;
+    data.articles.forEach(a => { if (a.cheapest === idA) wA++; else if (a.cheapest === idB) wB++; });
+    const winner = wA >= wB ? supA : supB;
     const card = document.createElement('div');
     card.className = 'group-card';
     card.style.setProperty('--winner-color', winner.color);
@@ -215,12 +234,12 @@ function renderGroupCards(results, supA, supB, idA, idB, sortBy) {
           <span class="gstat-label">artiklar</span>
         </div>
         <div class="group-stat">
-          <span class="gstat-value ${data.avgPct > 0 ? 'text-red' : 'text-green'}">${data.avgPct.toFixed(1)}%</span>
-          <span class="gstat-label">snitt diff</span>
+          <span class="gstat-value">${data.avgMarkup.toFixed(1)}%</span>
+          <span class="gstat-label">snitt markup</span>
         </div>
         <div class="group-stat">
-          <span class="gstat-value">${formatKr(Math.abs(data.sumDiffKr))}</span>
-          <span class="gstat-label">total diff</span>
+          <span class="gstat-value">${formatKr(data.sumSavingsKr)}</span>
+          <span class="gstat-label">besparing</span>
         </div>
       </div>
     `;
@@ -239,15 +258,15 @@ function renderTopOpportunities(results, supA, supB, idA, idB) {
   const container = document.getElementById('opportunities-list');
   container.innerHTML = '';
 
-  // Top 10 groups by total savings
+  // Top 10 groups by total savings, filtered by min articles
   const groupsA = Object.entries(results.groups[idA])
-    .filter(([, d]) => d.avgPct > 0)
-    .sort((a, b) => b[1].sumDiffKr - a[1].sumDiffKr)
+    .filter(([, d]) => d.count >= minArticlesPerGroup)
+    .sort((a, b) => b[1].sumSavingsKr - a[1].sumSavingsKr)
     .slice(0, 10);
 
   const groupsB = Object.entries(results.groups[idB] || {})
-    .filter(([, d]) => d.avgPct < 0)
-    .sort((a, b) => a[1].sumDiffKr - b[1].sumDiffKr)
+    .filter(([, d]) => d.count >= minArticlesPerGroup)
+    .sort((a, b) => b[1].sumSavingsKr - a[1].sumSavingsKr)
     .slice(0, 10);
 
   // Render two columns
@@ -275,8 +294,8 @@ function renderOppList(containerId, groups, winnerSup) {
       <span class="opp-rank">${i + 1}</span>
       <span class="opp-group">${grp}</span>
       <span class="opp-articles">${data.count} art.</span>
-      <span class="opp-diff ${data.avgPct > 0 ? 'text-red' : 'text-green'}">${data.avgPct.toFixed(1)}%</span>
-      <span class="opp-kr">${formatKr(Math.abs(data.sumDiffKr))}</span>
+      <span class="opp-diff">${data.avgMarkup.toFixed(1)}%</span>
+      <span class="opp-kr">${formatKr(data.sumSavingsKr)}</span>
     `;
     row.addEventListener('click', () => {
       document.getElementById('f-group').value = grp;
@@ -296,6 +315,8 @@ function renderNegotiation(results, supA, supB, idA, idB) {
   [{ sup: supA, id: idA, recs: results.recommendations[idA], comp: supB },
   { sup: supB, id: idB, recs: results.recommendations[idB], comp: supA }].forEach(({ sup, recs, comp }) => {
     if (!recs || recs.length === 0) return;
+    const filteredRecs = recs.filter(rec => rec.articleCount >= minArticlesPerGroup);
+    if (filteredRecs.length === 0) return;
 
     const section = document.createElement('div');
     section.className = 'neg-section';
@@ -319,7 +340,7 @@ function renderNegotiation(results, supA, supB, idA, idB) {
       </div>
     `;
 
-    recs.slice(0, 15).forEach(rec => {
+    filteredRecs.slice(0, 15).forEach(rec => {
       const row = document.createElement('div');
       row.className = 'neg-row';
       row.innerHTML = `
@@ -357,30 +378,74 @@ function setupFilters(results, idA, idB) {
   `;
 
   // Apply button
-  document.getElementById('btn-apply-filters').addEventListener('click', applyFilters);
+  document.getElementById('btn-apply-filters').addEventListener('click', () => {
+    refFilterMode = null;
+    updateRefButtonStyles();
+    applyAllSections();
+  });
 
   // Enter key
   document.querySelectorAll('#filter-bar input, #filter-bar select').forEach(el => {
-    el.addEventListener('keydown', e => { if (e.key === 'Enter') applyFilters(); });
+    el.addEventListener('keydown', e => { if (e.key === 'Enter') { refFilterMode = null; updateRefButtonStyles(); applyAllSections(); } });
   });
 
   // Reset
   document.getElementById('btn-reset-filters').addEventListener('click', () => {
-    ['f-enr-search', 'f-diff-min', 'f-diff-max', 'f-group'].forEach(id => {
+    ['f-enr-search', 'f-diff-min', 'f-diff-max', 'f-price-min', 'f-price-max', 'f-group', 'f-lookup-enr', 'f-min-articles'].forEach(id => {
       const el = document.getElementById(id);
       if (el) el.value = '';
     });
     document.getElementById('f-cheapest').selectedIndex = 0;
-    applyFilters();
+    refFilterMode = null;
+    updateRefButtonStyles();
+    favFilterMode = null;
+    favEnrSet = null;
+    favGroupsList = [];
+    updateFavButtonStyles();
+    const favTa = document.getElementById('fav-enr-input');
+    if (favTa) favTa.value = '';
+    const favCount = document.getElementById('fav-count');
+    if (favCount) favCount.textContent = '';
+    uncheckAllCategories();
+    applyAllSections();
   });
+
+  // E-nummer → Rabattgrupp lookup
+  const lookupBtn = document.getElementById('btn-lookup-enr');
+  const lookupInput = document.getElementById('f-lookup-enr');
+  if (lookupBtn) lookupBtn.addEventListener('click', lookupEnrGroups);
+  if (lookupInput) lookupInput.addEventListener('keydown', e => { if (e.key === 'Enter') lookupEnrGroups(); });
+
+  // Referensmall preset buttons
+  const refDirectBtn = document.getElementById('btn-ref-direct');
+  const refGroupsBtn = document.getElementById('btn-ref-groups');
+  if (refDirectBtn) refDirectBtn.addEventListener('click', applyRefDirect);
+  if (refGroupsBtn) refGroupsBtn.addEventListener('click', applyRefGroups);
+
+  // Favoritlista
+  const favFileInput = document.getElementById('fav-file-input');
+  if (favFileInput) favFileInput.addEventListener('change', loadFavFile);
+  const favClearBtn = document.getElementById('btn-fav-clear');
+  if (favClearBtn) favClearBtn.addEventListener('click', clearFavList);
+  const favDirectBtn = document.getElementById('btn-fav-direct');
+  if (favDirectBtn) favDirectBtn.addEventListener('click', applyFavDirect);
+  const favGroupsBtn = document.getElementById('btn-fav-groups');
+  if (favGroupsBtn) favGroupsBtn.addEventListener('click', applyFavGroups);
+
+  // Build category checkboxes
+  buildCategoryCheckboxes();
 
   // Update table headers
   const thA = document.getElementById('th-net-a');
   const thB = document.getElementById('th-net-b');
+  const thMarkupA = document.getElementById('th-markup-a');
+  const thMarkupB = document.getElementById('th-markup-b');
   const thGrpA = document.getElementById('th-grp-a');
   const thGrpB = document.getElementById('th-grp-b');
   if (thA) thA.textContent = `${supA.name} Netto`;
   if (thB) thB.textContent = `${supB.name} Netto`;
+  if (thMarkupA) thMarkupA.textContent = `${supA.name} %`;
+  if (thMarkupB) thMarkupB.textContent = `${supB.name} %`;
   if (thGrpA) thGrpA.textContent = `${supA.name} Grupp`;
   if (thGrpB) thGrpB.textContent = `${supB.name} Grupp`;
 
@@ -397,20 +462,75 @@ function setupFilters(results, idA, idB) {
   });
 }
 
+/**
+ * Re-render all group-dependent sections + article table.
+ * Reads the min-articles threshold so groups/opportunities/negotiation
+ * are filtered consistently.
+ */
+function applyAllSections() {
+  if (!currentResults) return;
+
+  // Read min-articles threshold
+  const minVal = parseInt(document.getElementById('f-min-articles')?.value, 10);
+  minArticlesPerGroup = isNaN(minVal) || minVal < 0 ? 0 : minVal;
+
+  const [idA, idB] = currentResults.supplierIds;
+  const supA = SUPPLIERS[idA];
+  const supB = SUPPLIERS[idB];
+
+  // Re-render group-dependent sections
+  const activeSort = document.querySelector('#group-sort .sort-btn.active')?.dataset.sort || 'score';
+  renderGroupCards(currentResults, supA, supB, idA, idB, activeSort);
+  renderTopOpportunities(currentResults, supA, supB, idA, idB);
+  renderNegotiation(currentResults, supA, supB, idA, idB);
+
+  // Re-apply article filters
+  applyFilters();
+}
+
 function applyFilters() {
   if (!currentResults) return;
 
   const filters = {
     searchEnr: document.getElementById('f-enr-search')?.value.trim() || '',
-    diffMin: document.getElementById('f-diff-min')?.value || '',
-    diffMax: document.getElementById('f-diff-max')?.value || '',
+    markupMin: document.getElementById('f-diff-min')?.value || '',
+    markupMax: document.getElementById('f-diff-max')?.value || '',
     cheapest: document.getElementById('f-cheapest')?.value || '',
     groups: (document.getElementById('f-group')?.value || '').trim()
       ? document.getElementById('f-group').value.split(',').map(g => g.trim()).filter(Boolean)
-      : []
+      : [],
+    categories: getCheckedCategories(),
+    priceMin: document.getElementById('f-price-min')?.value || '',
+    priceMax: document.getElementById('f-price-max')?.value || ''
   };
 
-  let filtered = filterArticles(currentResults.matched, filters);
+  // Start from matched or ref-filtered set
+  let source = currentResults.matched;
+  if (refFilterMode === 'direct' && referensEnr) {
+    source = source.filter(a => referensEnr.has(a.enr));
+  } else if (refFilterMode === 'groups' && refGroupsList.length > 0) {
+    const grpSet = new Set(refGroupsList.map(g => g.toUpperCase()));
+    source = source.filter(a => grpSet.has(a.grpA.toUpperCase()) || grpSet.has(a.grpB.toUpperCase()));
+  }
+
+  // Favoritlista filter
+  if (favFilterMode === 'direct' && favEnrSet && favEnrSet.size > 0) {
+    source = source.filter(a => favEnrSet.has(a.enr));
+  } else if (favFilterMode === 'groups' && favGroupsList.length > 0) {
+    const grpSet = new Set(favGroupsList.map(g => g.toUpperCase()));
+    source = source.filter(a => grpSet.has(a.grpA.toUpperCase()) || grpSet.has(a.grpB.toUpperCase()));
+  }
+
+  // Filter out articles from groups below min-articles threshold
+  if (minArticlesPerGroup > 0) {
+    const grpCounts = {};
+    source.forEach(a => {
+      grpCounts[a.grpA] = (grpCounts[a.grpA] || 0) + 1;
+    });
+    source = source.filter(a => (grpCounts[a.grpA] || 0) >= minArticlesPerGroup);
+  }
+
+  let filtered = filterArticles(source, filters);
 
   // Sort
   if (sortColumn) {
@@ -418,8 +538,9 @@ function applyFilters() {
       enr: (a, b) => a.enr.localeCompare(b.enr),
       netA: (a, b) => a.netA - b.netA,
       netB: (a, b) => a.netB - b.netB,
-      diffKr: (a, b) => a.diffKr - b.diffKr,
-      diffPct: (a, b) => a.diffPct - b.diffPct,
+      bestNet: (a, b) => a.bestNet - b.bestNet,
+      markupA: (a, b) => a.markupA - b.markupA,
+      markupB: (a, b) => a.markupB - b.markupB,
       grpA: (a, b) => a.grpA.localeCompare(b.grpA),
       grpB: (a, b) => a.grpB.localeCompare(b.grpB),
     };
@@ -434,7 +555,10 @@ function applyFilters() {
   // Update filter count
   const countEl = document.getElementById('filter-count');
   if (countEl) {
-    countEl.textContent = `Visar ${filtered.length.toLocaleString('sv-SE')} av ${currentResults.matched.length.toLocaleString('sv-SE')} artiklar`;
+    let label = `Visar ${filtered.length.toLocaleString('sv-SE')} av ${currentResults.matched.length.toLocaleString('sv-SE')} artiklar`;
+    if (refFilterMode === 'direct') label += ' (Referensmall: artiklar)';
+    else if (refFilterMode === 'groups') label += ` (Referensmall: ${refGroupsList.length} grupper)`;
+    countEl.textContent = label;
   }
 
   // Update filtered summary
@@ -460,12 +584,12 @@ function renderFilteredSummary(articles) {
         <span class="fs-value">${stats.count.toLocaleString('sv-SE')}</span>
       </div>
       <div class="fs-stat">
-        <span class="fs-label">Snitt diff</span>
-        <span class="fs-value ${stats.avgDiffPct > 0 ? 'text-red' : 'text-green'}">${stats.avgDiffPct.toFixed(2)}%</span>
+        <span class="fs-label">Snitt markup</span>
+        <span class="fs-value">${stats.avgMaxMarkup.toFixed(1)}%</span>
       </div>
       <div class="fs-stat">
-        <span class="fs-label">Median diff</span>
-        <span class="fs-value ${stats.medianDiffPct > 0 ? 'text-red' : 'text-green'}">${stats.medianDiffPct.toFixed(2)}%</span>
+        <span class="fs-label">Median markup</span>
+        <span class="fs-value">${stats.medianMaxMarkup.toFixed(1)}%</span>
       </div>
       <div class="fs-stat">
         <span class="fs-label">${supA.name} billigare</span>
@@ -476,8 +600,8 @@ function renderFilteredSummary(articles) {
         <span class="fs-value" style="color:${supB.color}">${stats.winsB.toLocaleString('sv-SE')}</span>
       </div>
       <div class="fs-stat">
-        <span class="fs-label">Total diff</span>
-        <span class="fs-value ${stats.totalDiffKr > 0 ? 'text-red' : 'text-green'}">${formatKr(Math.abs(stats.totalDiffKr))}</span>
+        <span class="fs-label">Total besparing</span>
+        <span class="fs-value">${formatKr(stats.totalSavingsKr)}</span>
       </div>
     </div>
   `;
@@ -541,13 +665,15 @@ function renderVisibleRows() {
     const a = virtualData[i];
     const tr = document.createElement('tr');
     tr.style.height = ROW_HEIGHT + 'px';
-    const cls = a.diffPct > 0.01 ? 'text-red' : (a.diffPct < -0.01 ? 'text-green' : '');
+    const clsA = a.markupA > 0.01 ? 'text-red' : 'text-green';
+    const clsB = a.markupB > 0.01 ? 'text-red' : 'text-green';
     tr.innerHTML = `
       <td>${a.enr}</td>
       <td>${a.netA.toFixed(2)}</td>
       <td>${a.netB.toFixed(2)}</td>
-      <td class="${cls}">${a.diffKr.toFixed(2)}</td>
-      <td class="${cls}">${a.diffPct.toFixed(2)}%</td>
+      <td>${a.bestNet.toFixed(2)}</td>
+      <td class="${clsA}">${a.markupA < 0.01 ? '0%' : '+' + a.markupA.toFixed(1) + '%'}</td>
+      <td class="${clsB}">${a.markupB < 0.01 ? '0%' : '+' + a.markupB.toFixed(1) + '%'}</td>
       <td>${a.grpA}</td>
       <td>${a.grpB}</td>
       <td>${a.unit}</td>
@@ -556,6 +682,340 @@ function renderVisibleRows() {
   }
   tableBody.innerHTML = '';
   tableBody.appendChild(fragment);
+}
+
+// ── Category Checkboxes ───────────────────────────────────────────
+
+function buildCategoryCheckboxes() {
+  const container = document.getElementById('cat-checkboxes');
+  if (!container) return;
+  container.innerHTML = '';
+
+  for (let i = 0; i < 100; i += 10) {
+    const from = String(i).padStart(2, '0');
+    const to = String(i + 9).padStart(2, '0');
+
+    const group = document.createElement('div');
+    group.className = 'cat-group';
+
+    // L1 parent checkbox
+    const l1Label = document.createElement('label');
+    l1Label.className = 'cat-l1';
+    const l1Cb = document.createElement('input');
+    l1Cb.type = 'checkbox';
+    l1Cb.className = 'cat-l1-cb';
+    l1Cb.dataset.start = i;
+    l1Label.appendChild(l1Cb);
+    l1Label.appendChild(document.createTextNode(` ${from}–${to}`));
+
+    // Toggle arrow
+    const toggle = document.createElement('span');
+    toggle.className = 'cat-toggle';
+    toggle.textContent = '▸';
+    toggle.onclick = (e) => {
+      e.preventDefault();
+      const children = group.querySelector('.cat-children');
+      const open = children.style.display !== 'none';
+      children.style.display = open ? 'none' : 'flex';
+      toggle.textContent = open ? '▸' : '▾';
+    };
+    l1Label.prepend(toggle);
+    group.appendChild(l1Label);
+
+    // L2 children container
+    const childrenDiv = document.createElement('div');
+    childrenDiv.className = 'cat-children';
+    childrenDiv.style.display = 'none';
+
+    for (let j = i; j <= i + 9; j++) {
+      const prefix = String(j).padStart(2, '0');
+      const l2Label = document.createElement('label');
+      l2Label.className = 'cat-l2';
+      const l2Cb = document.createElement('input');
+      l2Cb.type = 'checkbox';
+      l2Cb.className = 'cat-l2-cb';
+      l2Cb.value = prefix;
+      l2Cb.addEventListener('change', () => {
+        const siblings = childrenDiv.querySelectorAll('.cat-l2-cb');
+        const allChecked = [...siblings].every(s => s.checked);
+        const someChecked = [...siblings].some(s => s.checked);
+        l1Cb.checked = allChecked;
+        l1Cb.indeterminate = someChecked && !allChecked;
+      });
+      l2Label.appendChild(l2Cb);
+      l2Label.appendChild(document.createTextNode(` ${prefix}`));
+      childrenDiv.appendChild(l2Label);
+    }
+
+    // L1 click toggles all children
+    l1Cb.addEventListener('change', () => {
+      const children = childrenDiv.querySelectorAll('.cat-l2-cb');
+      children.forEach(cb => cb.checked = l1Cb.checked);
+      l1Cb.indeterminate = false;
+    });
+
+    group.appendChild(childrenDiv);
+    container.appendChild(group);
+  }
+}
+
+function getCheckedCategories() {
+  const checked = document.querySelectorAll('.cat-l2-cb:checked');
+  if (!checked.length) return [];
+  return [...checked].map(cb => cb.value);
+}
+
+function uncheckAllCategories() {
+  document.querySelectorAll('.cat-l1-cb, .cat-l2-cb').forEach(cb => {
+    cb.checked = false;
+    cb.indeterminate = false;
+  });
+}
+
+// ── E-nummer → Rabattgrupp Lookup ────────────────────────────────
+
+function lookupEnrGroups() {
+  if (!currentResults) return;
+  const enr = (document.getElementById('f-lookup-enr')?.value || '').trim();
+  if (!enr) return;
+
+  const { supplierData, supplierIds } = currentResults;
+  const groups = new Set();
+
+  for (const id of supplierIds) {
+    const data = supplierData[id];
+    if (data && data.has(enr)) {
+      groups.add(data.get(enr).grp);
+    }
+  }
+
+  if (groups.size === 0) {
+    alert(`E-nummer ${enr} hittades inte i någon leverantörs prislista.`);
+    return;
+  }
+
+  document.getElementById('f-group').value = [...groups].join(', ');
+  refFilterMode = null;
+  updateRefButtonStyles();
+  applyFilters();
+}
+
+// ── Referensmall ─────────────────────────────────────────────────
+
+async function loadReferensMall() {
+  try {
+    const resp = await fetch('./referens_enummer.json');
+    if (!resp.ok) return;
+    const arr = await resp.json();
+    referensEnr = new Set(arr.map(e => String(e).trim()));
+  } catch (e) {
+    console.warn('Could not load referens_enummer.json:', e);
+  }
+}
+
+function applyRefDirect() {
+  if (!referensEnr) { alert('Referensmall har inte laddats.'); return; }
+  refFilterMode = refFilterMode === 'direct' ? null : 'direct'; // toggle
+  updateRefButtonStyles();
+  applyFilters();
+}
+
+function applyRefGroups() {
+  if (!referensEnr || !currentResults) { alert('Referensmall har inte laddats.'); return; }
+
+  if (refFilterMode === 'groups') {
+    refFilterMode = null;
+    refGroupsList = [];
+    updateRefButtonStyles();
+    applyFilters();
+    return;
+  }
+
+  // Collect groups from reference E-nummers
+  const { supplierData, supplierIds } = currentResults;
+  const groups = new Set();
+  for (const enr of referensEnr) {
+    for (const id of supplierIds) {
+      const d = supplierData[id];
+      if (d && d.has(enr)) groups.add(d.get(enr).grp);
+    }
+  }
+  refGroupsList = [...groups];
+  refFilterMode = 'groups';
+  updateRefButtonStyles();
+  applyFilters();
+}
+
+function updateRefButtonStyles() {
+  const directBtn = document.getElementById('btn-ref-direct');
+  const groupsBtn = document.getElementById('btn-ref-groups');
+  if (directBtn) directBtn.classList.toggle('active', refFilterMode === 'direct');
+  if (groupsBtn) groupsBtn.classList.toggle('active', refFilterMode === 'groups');
+}
+
+// ── Favoritlista ──────────────────────────────────────────────────
+
+const ENR_REGEX = /^\d{7}$/;
+
+/**
+ * Parse textarea content into favEnrSet.
+ * Only keeps values that are exactly 7 digits AND exist in matched articles.
+ */
+function parseFavInput() {
+  const ta = document.getElementById('fav-enr-input');
+  const countEl = document.getElementById('fav-count');
+  // UI for unmatched
+  const umDetails = document.getElementById('fav-unmatched-details');
+  const umSummary = document.getElementById('fav-unmatched-summary');
+  const umList = document.getElementById('fav-unmatched-list');
+
+  if (!ta) return;
+
+  const raw = ta.value;
+  if (!raw.trim()) {
+    favEnrSet = null;
+    if (countEl) countEl.textContent = '';
+    if (umDetails) umDetails.style.display = 'none';
+    if (umList) umList.textContent = '';
+    return;
+  }
+
+  // Split on newline, comma, semicolon, tab — extract all 7-digit tokens
+  const tokens = raw.split(/[\n\r,;\t]+/).map(s => s.trim()).filter(Boolean);
+  const valid = tokens.filter(t => ENR_REGEX.test(t));
+  const uniqueValid = [...new Set(valid)];
+
+  // Intersect with matched articles for efficiency
+  let matchedEnrs = null;
+  if (currentResults) {
+    matchedEnrs = new Set(currentResults.matched.map(a => a.enr));
+    favEnrSet = new Set(uniqueValid.filter(e => matchedEnrs.has(e)));
+  } else {
+    // If no results loaded yet, accept all as potentially valid
+    favEnrSet = new Set(uniqueValid);
+  }
+
+  const skipped = tokens.length - valid.length;
+  // Unmatched are valid 7-digit numbers that are NOT in the matched set
+  const unmatched = uniqueValid.filter(e => !favEnrSet.has(e));
+
+  let label = `${favEnrSet.size} E-nummer laddade`;
+  if (skipped > 0) label += `, ${skipped} ogiltiga (ej 7 siffror)`;
+  if (unmatched.length > 0) label += `, ${unmatched.length} utan match i aktuell prislista`;
+
+  if (countEl) countEl.textContent = label;
+
+  // Render unmatched list
+  if (umDetails) {
+    if (unmatched.length > 0) {
+      umDetails.style.display = 'block';
+      if (umSummary) umSummary.textContent = `Visa ${unmatched.length} saknade`;
+      if (umList) umList.textContent = unmatched.join(', ');
+    } else {
+      umDetails.style.display = 'none';
+      if (umList) umList.textContent = '';
+    }
+  }
+}
+
+function loadFavFile(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    const ta = document.getElementById('fav-enr-input');
+    if (ta) ta.value = e.target.result;
+    parseFavInput();
+  };
+  reader.readAsText(file);
+  // Reset so the same file can be re-loaded
+  event.target.value = '';
+}
+
+function clearFavList() {
+  const ta = document.getElementById('fav-enr-input');
+  if (ta) ta.value = '';
+  favEnrSet = null;
+  favFilterMode = null;
+  favGroupsList = [];
+  const countEl = document.getElementById('fav-count');
+  if (countEl) countEl.textContent = '';
+
+  const umDetails = document.getElementById('fav-unmatched-details');
+  if (umDetails) umDetails.style.display = 'none';
+  const umList = document.getElementById('fav-unmatched-list');
+  if (umList) umList.textContent = '';
+
+  updateFavButtonStyles();
+  applyAllSections();
+}
+
+function applyFavDirect() {
+  // Parse input first
+  parseFavInput();
+  if (!favEnrSet || favEnrSet.size === 0) {
+    alert('Inga giltiga E-nummer i favoritlistan.');
+    return;
+  }
+
+  // Toggle
+  if (favFilterMode === 'direct') {
+    favFilterMode = null;
+  } else {
+    favFilterMode = 'direct';
+    // Mutual exclusion: deactivate ref-filter
+    refFilterMode = null;
+    updateRefButtonStyles();
+  }
+  updateFavButtonStyles();
+  applyAllSections();
+}
+
+function applyFavGroups() {
+  parseFavInput();
+  if (!favEnrSet || favEnrSet.size === 0 || !currentResults) {
+    alert('Inga giltiga E-nummer i favoritlistan.');
+    return;
+  }
+
+  if (favFilterMode === 'groups') {
+    favFilterMode = null;
+    favGroupsList = [];
+    updateFavButtonStyles();
+    applyAllSections();
+    return;
+  }
+
+  // Collect groups from fav E-nummers via supplierData
+  const { supplierData, supplierIds } = currentResults;
+  const groups = new Set();
+  for (const enr of favEnrSet) {
+    for (const id of supplierIds) {
+      const d = supplierData[id];
+      if (d && d.has(enr)) groups.add(d.get(enr).grp);
+    }
+  }
+  favGroupsList = [...groups];
+  favFilterMode = 'groups';
+
+  // Mutual exclusion: deactivate ref-filter
+  refFilterMode = null;
+  updateRefButtonStyles();
+
+  updateFavButtonStyles();
+  applyAllSections();
+}
+
+function updateFavButtonStyles() {
+  const directBtn = document.getElementById('btn-fav-direct');
+  const groupsBtn = document.getElementById('btn-fav-groups');
+  if (directBtn) directBtn.classList.toggle('active', favFilterMode === 'direct');
+  if (groupsBtn) {
+    groupsBtn.classList.toggle('active', favFilterMode === 'groups');
+    groupsBtn.textContent = favFilterMode === 'groups' && favGroupsList.length > 0
+      ? `Fav: Grupper (${favGroupsList.length} st)`
+      : 'Fav: Grupper';
+  }
 }
 
 // ── Helpers ────────────────────────────────────────────────────────
