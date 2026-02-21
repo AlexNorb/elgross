@@ -5,8 +5,8 @@ import { filterArticles, computeStats } from './engine.js';
 
 let currentResults = null;
 let currentFiltered = null;
-let sortColumn = null;
-let sortAsc = true;
+let sortColumn = 'markupA';
+let sortAsc = false;
 let referensEnr = null; // Set of reference E-nummers
 let refFilterMode = null; // null | 'direct' | 'groups'
 let refGroupsList = []; // groups derived from ref articles
@@ -332,13 +332,13 @@ function renderNegotiation(dynamicRecommendations, supA, supB, idA, idB) {
     filteredRecs = filteredRecs.map(r => ({
       ...r,
       diffPct: r.targetDiscount - r.currentDiscount,
-      // Påverkan = artiklar × snitt markup × total kr (normalized)
-      impactScore: r.articleCount * (r.avgMarkup || 0) * r.totalImpactKr / 1000
+      // Påverkan = antal dyrare artiklar × diff %
+      impactScore: (r.losingCount || r.articleCount) * (r.targetDiscount - r.currentDiscount)
     }));
 
     // Track sort state per section
-    let negSortCol = 'impactScore';
-    let negSortAsc = false; // default: highest impact first
+    let negSortCol = 'diffPct';
+    let negSortAsc = false; // default: biggest diff first
 
     const section = document.createElement('div');
     section.className = 'neg-section';
@@ -368,7 +368,7 @@ function renderNegotiation(dynamicRecommendations, supA, supB, idA, idB) {
       header.className = 'neg-header';
       const cols = [
         { key: 'group', label: 'Grupp' },
-        { key: 'articleCount', label: 'Artiklar (dyrare)' },
+        { key: 'losingCount', label: 'Dyrare (totalt)' },
         { key: 'avgMarkup', label: 'Snitt markup' },
         { key: 'currentDiscount', label: 'Nuv. rabatt' },
         { key: 'targetDiscount', label: 'Mål' },
@@ -399,7 +399,7 @@ function renderNegotiation(dynamicRecommendations, supA, supB, idA, idB) {
         row.className = 'neg-row';
         row.innerHTML = `
           <span class="neg-group">${rec.group}</span>
-          <span>${rec.articleCount} <small style="color:var(--text-muted)">(${rec.losingCount || rec.articleCount})</small></span>
+          <span>${rec.losingCount || rec.articleCount} <small style="color:var(--text-muted)">(${rec.articleCount})</small></span>
           <span>${(rec.avgMarkup || 0).toFixed(1)}%</span>
           <span>${rec.currentDiscount.toFixed(1)}%</span>
           <span class="text-green">${rec.targetDiscount.toFixed(1)}%</span>
@@ -803,10 +803,6 @@ function renderFilteredSummary(articles) {
         <span class="fs-label">${supB.name} billigare</span>
         <span class="fs-value" style="color:${supB.color}">${stats.winsB.toLocaleString('sv-SE')}</span>
       </div>
-      <div class="fs-stat">
-        <span class="fs-label">Total besparing</span>
-        <span class="fs-value">${formatKr(stats.totalSavingsKr)}</span>
-      </div>
     </div>
   `;
 }
@@ -853,7 +849,6 @@ function renderVirtualTable(articles) {
       <td class="${clsB}">${a.markupB < 0.01 ? '0%' : '+' + a.markupB.toFixed(1) + '%'}</td>
       <td>${a.grpA}</td>
       <td>${a.grpB}</td>
-      <td>${a.unit}</td>
     `;
     fragment.appendChild(tr);
   }
@@ -863,7 +858,7 @@ function renderVirtualTable(articles) {
   // Show a note if capped
   if (articles.length > MAX_TABLE_ROWS) {
     const note = document.createElement('tr');
-    note.innerHTML = `<td colspan="9" style="text-align:center; color:var(--text-secondary); padding:0.75rem;">Visar ${MAX_TABLE_ROWS} av ${articles.length.toLocaleString('sv-SE')} artiklar. Filtrera för att se fler.</td>`;
+    note.innerHTML = `<td colspan="8" style="text-align:center; color:var(--text-secondary); padding:0.75rem;">Visar ${MAX_TABLE_ROWS} av ${articles.length.toLocaleString('sv-SE')} artiklar. Filtrera för att se fler.</td>`;
     tableBody.appendChild(note);
   }
 }
