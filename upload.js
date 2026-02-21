@@ -66,10 +66,6 @@ async function handleFiles(fileList) {
             continue;
         }
 
-        if (Object.keys(uploadedFiles).length >= 2 && !uploadedFiles[supplierId]) {
-            showUploadError(`Du har redan 2 filer uppladdade. Ta bort en innan du lägger till en ny.`);
-            continue;
-        }
 
         uploadedFiles[supplierId] = { name: file.name, content };
         showUploadSuccess(supplierId, file.name);
@@ -155,14 +151,12 @@ function updateSupplierChips() {
 function updateAnalyzeButton() {
     const btn = document.getElementById('analyze-btn');
     const count = Object.keys(uploadedFiles).length;
-    btn.disabled = count !== 2 || isProcessing;
+    btn.disabled = count < 2 || isProcessing;
 
     if (count < 2) {
-        btn.textContent = `Väntar på 2 avtal (${count}/2)`;
-    } else if (count === 2) {
-        btn.textContent = 'Analysera priser';
+        btn.textContent = `Väntar på minst 2 avtal (${count} uppladdade)`;
     } else {
-        btn.textContent = 'För många tillagda (ta bort så du har exakt 2)';
+        btn.textContent = `Analysera priser (${count} leverantörer)`;
     }
 }
 
@@ -170,16 +164,14 @@ function showUploadError(msg) {
     const el = document.getElementById('upload-feedback');
     el.textContent = msg;
     el.className = 'upload-feedback error';
-    el.style.display = 'block';
-    setTimeout(() => el.style.display = 'none', 5000);
+    setTimeout(() => { el.innerHTML = '&nbsp;'; el.className = 'upload-feedback'; }, 5000);
 }
 
 function showUploadSuccess(supplierId, filename) {
     const el = document.getElementById('upload-feedback');
-    el.textContent = `✓ ${SUPPLIERS[supplierId].name}-avtal identifierat: ${filename}`;
+    el.textContent = `✓ ${SUPPLIERS[supplierId].name}: ${filename}`;
     el.className = 'upload-feedback success';
-    el.style.display = 'block';
-    setTimeout(() => el.style.display = 'none', 3000);
+    setTimeout(() => { el.innerHTML = '&nbsp;'; el.className = 'upload-feedback'; }, 3000);
 }
 
 /**

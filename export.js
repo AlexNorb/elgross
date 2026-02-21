@@ -23,6 +23,7 @@ async function loadSheetJS() {
 
 /**
  * Export full analysis results to Excel.
+ * Supports N suppliers dynamically.
  * @param {Object} results — from compareSuppliers()
  * @param {Object} SUPPLIERS — supplier registry
  */
@@ -30,9 +31,7 @@ async function exportToExcel(results, SUPPLIERS) {
     const xlsx = await loadSheetJS();
     const wb = xlsx.utils.book_new();
 
-    const [idA, idB] = results.supplierIds;
-    const supA = SUPPLIERS[idA];
-    const supB = SUPPLIERS[idB];
+    const supplierIds = results.supplierIds;
 
     // ── Sheet 1: Summary ─────────────────────────────
     const summaryData = [
@@ -40,95 +39,81 @@ async function exportToExcel(results, SUPPLIERS) {
         [],
         ['Matchade artiklar', results.stats.totalMatched],
         ['Snitt markup', results.stats.avgMaxMarkup.toFixed(1) + '%'],
-        [`${supA.name} billigare`, results.stats.winsA],
-        [`${supB.name} billigare`, results.stats.winsB],
+    ];
+    for (const id of supplierIds) {
+        const sup = SUPPLIERS[id];
+        summaryData.push([`${sup.name} billigare`, results.stats.wins[id] || 0]);
+    }
+    summaryData.push(
         ['Samma pris', results.stats.equal],
         [],
         ['Exkluderade'],
         ['Olika enhet', results.excluded.unitMismatch],
-        [`Bara ${supA.name}`, results.excluded.onlyA],
-        [`Bara ${supB.name}`, results.excluded.onlyB],
+    );
+    for (const id of supplierIds) {
+        const sup = SUPPLIERS[id];
+        summaryData.push([`Bara ${sup.name}`, results.excluded.onlyCounts[id] || 0]);
+    }
+    summaryData.push(
         ['Saknar avtal', results.excluded.missingAgreement],
         ['Pris = 0', results.excluded.zeroPrice],
-        ['Markup > 5000%', results.excluded.highMarkup],
-    ];
+        ['Markup > 999%', results.excluded.highMarkup],
+    );
+
     const wsSummary = xlsx.utils.aoa_to_sheet(summaryData);
     wsSummary['!cols'] = [{ wch: 25 }, { wch: 15 }];
     xlsx.utils.book_append_sheet(wb, wsSummary, 'Sammanfattning');
 
     // ── Sheet 2: All Articles ─────────────────────────
-    const articleHeaders = [
-        'E-nummer',
-        `${supA.name} Netto`,
-        `${supB.name} Netto`,
-        'Bäst pris (kr)',
-        `${supA.name} Markup (%)`,
-        `${supB.name} Markup (%)`,
-        `${supA.name} Grupp`,
-        `${supB.name} Grupp`,
-        'Enhet',
-        'Billigast'
-    ];
+    // Dynamic headers: E-nummer, Bäst (kr), then per supplier: Netto, Markup (%), Grupp
+    const articleHeaders = ['E-nummer', 'Bäst pris (kr)'];
+    for (const id of supplierIds) {
+        const name = SUPPLIERS[id].name;
+        articleHeaders.push(`${name} Netto`, `${name} Markup (%)`, `${name} Grupp`);
+    }
+    articleHeaders.push('Enhet', 'Billigast');
 
-    const articleRows = results.matched.map(a => [
-        a.enr,
-        Math.round(a.netA * 100) / 100,
-        Math.round(a.netB * 100) / 100,
-        Math.round(a.bestNet * 100) / 100,
-        Math.round(a.markupA * 100) / 100,
-        Math.round(a.markupB * 100) / 100,
-        a.grpA,
-        a.grpB,
-        a.unit,
-        a.cheapest === idA ? supA.name : (a.cheapest === idB ? supB.name : 'Lika')
-    ]);
+    const articleRows = results.matched.map(a => {
+        const row = [a.enr, Math.round(a.bestNet * 100) / 100];
+        for (const id of supplierIds) {
+            const s = a.suppliers[id];
+            if (s) {
+                row.push(
+                    Math.round(s.net * 100) / 100,
+                    Math.round(s.markup * 100) / 100,
+                    s.grp
+                );
+            } else {
+                row.push('', '', '');
+            }
+        }
+        const cheapestName = a.cheapest === 'equal' ? 'Lika' : (SUPPLIERS[a.cheapest]?.name || a.cheapest);
+        row.push(a.unit, cheapestName);
+        return row;
+    });
 
     const wsArticles = xlsx.utils.aoa_to_sheet([articleHeaders, ...articleRows]);
-    wsArticles['!cols'] = [
-        { wch: 12 }, { wch: 14 }, { wch: 14 }, { wch: 14 },
-        { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 8 }, { wch: 12 }
-    ];
+    const colWidths = [{ wch: 12 }, { wch: 14 }];
+    for (const id of supplierIds) {
+        colWidths.push({ wch: 14 }, { wch: 14 }, { wch: 14 });
+    }
+    colWidths.push({ wch: 8 }, { wch: 12 });
+    wsArticles['!cols'] = colWidths;
     xlsx.utils.book_append_sheet(wb, wsArticles, 'Artiklar');
 
-    // ── Sheet 3: Group Analysis ───────────────────────
-    const groupHeaders = [
-        'Rabattgrupp', 'Leverantör', 'Antal artiklar',
-        'Snitt markup (%)', 'Total besparing (kr)'
-    ];
-    const groupRows = [];
-
-    for (const [id, groups] of Object.entries(results.groups)) {
-        const sup = SUPPLIERS[id];
-        for (const [grp, data] of Object.entries(groups)) {
-            groupRows.push([
-                grp,
-                sup.name,
-                data.count,
-                Math.round(data.avgMarkup * 100) / 100,
-                Math.round(data.sumSavingsKr)
-            ]);
-        }
-    }
-
-    // Sort by total savings descending
-    groupRows.sort((a, b) => b[4] - a[4]);
-
-    const wsGroups = xlsx.utils.aoa_to_sheet([groupHeaders, ...groupRows]);
-    wsGroups['!cols'] = [
-        { wch: 15 }, { wch: 12 }, { wch: 14 }, { wch: 14 }, { wch: 14 }
-    ];
-    xlsx.utils.book_append_sheet(wb, wsGroups, 'Gruppanalys');
-
-    // ── Sheet 4: Negotiation ──────────────────────────
+    // ── Sheet 3: Negotiation ──────────────────────────
     const negHeaders = [
         'Leverantör', 'Rabattgrupp', 'Artiklar',
         'Nuvarande rabatt %', 'Mål rabatt %', 'Total påverkan (kr)'
     ];
     const negRows = [];
 
-    for (const [id, recs] of Object.entries(results.recommendations)) {
+    // Use recommendations if available, otherwise empty
+    const recs = results.recommendations || {};
+    for (const [id, recList] of Object.entries(recs)) {
         const sup = SUPPLIERS[id];
-        recs.forEach(r => {
+        if (!recList) continue;
+        recList.forEach(r => {
             negRows.push([
                 sup.name,
                 r.group,

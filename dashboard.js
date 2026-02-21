@@ -5,7 +5,7 @@ import { filterArticles, computeStats } from './engine.js';
 
 let currentResults = null;
 let currentFiltered = null;
-let sortColumn = 'markupA';
+let sortColumn = 'maxMarkup';
 let sortAsc = false;
 let referensEnr = null; // Set of reference E-nummers
 let refFilterMode = null; // null | 'direct' | 'groups'
@@ -27,28 +27,19 @@ function showScreen(name) {
 
 function renderDashboard(results) {
   currentResults = results;
-  const [idA, idB] = results.supplierIds;
-  const supA = SUPPLIERS[idA];
-  const supB = SUPPLIERS[idB];
+  const supplierIds = results.supplierIds;
 
   // Executive Summary
-  renderExecutiveSummary(results, supA, supB);
+  renderExecutiveSummary(results);
 
   // Savings Breakdown
-  renderSavingsBreakdown(results, supA, supB, idA, idB);
-
-  // Group Analysis & Top Opportunities — removed, info merged into Förhandlingsunderlag
-  // renderGroupAnalysis(results, supA, supB, idA, idB);
-  // renderTopOpportunities(results, supA, supB, idA, idB);
-
-  // Negotiation Recommendations (initial render uses engine.js recs)
-  renderNegotiation(results.recommendations, supA, supB, idA, idB);
+  renderSavingsBreakdown(results);
 
   // Load referensmall
   loadReferensMall();
 
   // Article Table (initial: all matched)
-  setupFilters(results, idA, idB);
+  setupFilters(results);
   applyAllSections();
 
   // Back button
@@ -60,29 +51,36 @@ function renderDashboard(results) {
 
 // ── Executive Summary ──────────────────────────────────────────────
 
-function renderExecutiveSummary(results, supA, supB) {
-  const { stats, excluded } = results;
-  const totalSavings = stats.totalSavings;
-  const winner = stats.winsA >= stats.winsB ? supA : supB;
+function renderExecutiveSummary(results) {
+  const { stats, excluded, supplierIds } = results;
 
+  // Find winner (most wins)
+  let winnerId = supplierIds[0];
+  for (const id of supplierIds) {
+    if (stats.wins[id] > stats.wins[winnerId]) winnerId = id;
+  }
+  const winner = SUPPLIERS[winnerId];
 
-
-  // Winner badge
+  // Winner badge (if element exists)
   const winnerEl = document.getElementById('hero-winner');
-  winnerEl.textContent = winner.name;
-  winnerEl.style.background = winner.color;
+  if (winnerEl) {
+    winnerEl.textContent = winner.name;
+    winnerEl.style.background = winner.color;
+  }
 
   // Win percentage
-  const totalCompared = stats.winsA + stats.winsB + stats.equal;
-  const winnerPct = stats.winsA >= stats.winsB
-    ? ((stats.winsA / totalCompared) * 100).toFixed(0)
-    : ((stats.winsB / totalCompared) * 100).toFixed(0);
-  document.getElementById('hero-insight').textContent =
-    `${winner.name} är billigare på ${winnerPct}% av artiklarna`;
+  const totalCompared = Object.values(stats.wins).reduce((s, v) => s + v, 0) + stats.equal;
+  const winnerPct = totalCompared > 0
+    ? ((stats.wins[winnerId] / totalCompared) * 100).toFixed(0)
+    : 0;
+  const insightEl = document.getElementById('hero-insight');
+  if (insightEl) {
+    insightEl.textContent = `${winner.name} är billigare på ${winnerPct}% av artiklarna`;
+  }
 
-  // Summary stats row
+  // Summary stats row — dynamic per supplier
   const statsRow = document.getElementById('summary-stats');
-  statsRow.innerHTML = `
+  let statsHTML = `
     <div class="stat-card">
       <div class="stat-value">${stats.totalMatched.toLocaleString('sv-SE')}</div>
       <div class="stat-label">Matchade artiklar</div>
@@ -91,47 +89,65 @@ function renderExecutiveSummary(results, supA, supB) {
       <div class="stat-value">${stats.avgMaxMarkup.toFixed(1)}%</div>
       <div class="stat-label">Snitt markup</div>
     </div>
-    <div class="stat-card">
-      <div class="stat-value" style="color:${supA.color}">${stats.winsA.toLocaleString('sv-SE')}</div>
-      <div class="stat-label">${supA.name} billigare</div>
-    </div>
-    <div class="stat-card">
-      <div class="stat-value" style="color:${supB.color}">${stats.winsB.toLocaleString('sv-SE')}</div>
-      <div class="stat-label">${supB.name} billigare</div>
-    </div>
+  `;
+  for (const id of supplierIds) {
+    const sup = SUPPLIERS[id];
+    statsHTML += `
+      <div class="stat-card">
+        <div class="stat-value" style="color:${sup.color}">${stats.wins[id].toLocaleString('sv-SE')}</div>
+        <div class="stat-label">${sup.name} billigare</div>
+      </div>
+    `;
+  }
+  statsHTML += `
     <div class="stat-card">
       <div class="stat-value text-muted">${stats.equal.toLocaleString('sv-SE')}</div>
       <div class="stat-label">Samma pris</div>
     </div>
   `;
+  statsRow.innerHTML = statsHTML;
 
-  // Excluded stats
+  // Excluded stats — dynamic per supplier
   const exclEl = document.getElementById('excluded-stats');
-  exclEl.innerHTML = `
-    <span class="excl-tag">Olika enhet: ${excluded.unitMismatch}</span>
-    <span class="excl-tag">Bara ${supA.name}: ${excluded.onlyA}</span>
-    <span class="excl-tag">Bara ${supB.name}: ${excluded.onlyB}</span>
+  let exclHTML = `<span class="excl-tag">Olika enhet: ${excluded.unitMismatch}</span>`;
+  for (const id of supplierIds) {
+    const sup = SUPPLIERS[id];
+    exclHTML += `<span class="excl-tag">Bara ${sup.name}: ${excluded.onlyCounts[id] || 0}</span>`;
+  }
+  exclHTML += `
     <span class="excl-tag">Saknar avtal: ${excluded.missingAgreement}</span>
     <span class="excl-tag">Pris = 0: ${excluded.zeroPrice}</span>
     <span class="excl-tag">Markup &gt; 999%: ${excluded.highMarkup}</span>
   `;
+  exclEl.innerHTML = exclHTML;
 }
 
 // ── Savings Breakdown ──────────────────────────────────────────────
 
-function renderSavingsBreakdown(results, supA, supB, idA, idB) {
+function renderSavingsBreakdown(results) {
   const container = document.getElementById('savings-cards');
   container.innerHTML = '';
 
-  const { stats, matched } = results;
-  const totalCompared = stats.winsA + stats.winsB + stats.equal;
+  const { stats, matched, supplierIds } = results;
+  const totalCompared = Object.values(stats.wins).reduce((s, v) => s + v, 0) + stats.equal;
 
-  [{ sup: supA, id: idA, wins: stats.winsA, label: 'billigare' },
-  { sup: supB, id: idB, wins: stats.winsB, label: 'billigare' }].forEach(({ sup, id, wins }) => {
+  for (const id of supplierIds) {
+    const sup = SUPPLIERS[id];
+    const wins = stats.wins[id] || 0;
     const pct = totalCompared > 0 ? (wins / totalCompared * 100).toFixed(1) : 0;
+
+    // Sum savings for articles where this supplier is cheapest
     const savingsKr = matched
       .filter(a => a.cheapest === id)
-      .reduce((sum, a) => sum + Math.abs(a.netA - a.netB), 0);
+      .reduce((sum, a) => {
+        // Sum the markup of other suppliers relative to bestNet
+        let savings = 0;
+        for (const otherId of supplierIds) {
+          if (otherId === id || !a.suppliers[otherId]) continue;
+          savings += a.suppliers[otherId].net - a.bestNet;
+        }
+        return sum + savings / (supplierIds.length - 1); // average saving per competitor
+      }, 0);
 
     const card = document.createElement('div');
     card.className = 'savings-card';
@@ -148,12 +164,11 @@ function renderSavingsBreakdown(results, supA, supB, idA, idB) {
         </div>
         <div class="savings-detail">
           <span class="savings-wins">${wins.toLocaleString('sv-SE')} artiklar</span>
-          <span class="savings-kr">${formatKr(savingsKr)} billigare totalt</span>
         </div>
       </div>
     `;
     container.appendChild(card);
-  });
+  }
 }
 
 // ── Group Analysis ─────────────────────────────────────────────────
@@ -309,10 +324,12 @@ function renderOppList(containerId, groups, winnerSup) {
 
 // ── Negotiation Recommendations ────────────────────────────────────
 
-function renderNegotiation(dynamicRecommendations, supA, supB, idA, idB) {
+function renderNegotiation(dynamicRecommendations) {
   const container = document.getElementById('negotiation-content');
   if (!container) return;
   container.innerHTML = '';
+
+  const supplierIds = currentResults.supplierIds;
 
   // We want to skip minArticlesPerGroup if there's an active specific filter.
   const isTargetedSearch = (document.getElementById('f-enr-search')?.value.trim() !== '') ||
@@ -320,33 +337,29 @@ function renderNegotiation(dynamicRecommendations, supA, supB, idA, idB) {
     (favFilterMode !== null) ||
     (refFilterMode !== null);
 
-  [{ sup: supA, id: idA, recs: dynamicRecommendations[idA], comp: supB },
-  { sup: supB, id: idB, recs: dynamicRecommendations[idB], comp: supA }].forEach(({ sup, recs, comp }) => {
-    if (!recs || recs.length === 0) return;
+  for (const id of supplierIds) {
+    const sup = SUPPLIERS[id];
+    const recs = dynamicRecommendations[id];
+    if (!recs || recs.length === 0) continue;
 
-    // Bypass articles count threshold if user has directly filtered out items
     let filteredRecs = isTargetedSearch ? recs : recs.filter(rec => rec.articleCount >= minArticlesPerGroup);
-    if (filteredRecs.length === 0) return;
+    if (filteredRecs.length === 0) continue;
 
-    // Add computed fields for display/sorting
     filteredRecs = filteredRecs.map(r => ({
       ...r,
       diffPct: r.targetDiscount - r.currentDiscount,
-      // Påverkan = antal dyrare artiklar × diff %
       impactScore: (r.losingCount || r.articleCount) * (r.targetDiscount - r.currentDiscount)
-    }));
+    })).filter(r => r.diffPct >= 1);
 
-    // Track sort state per section
     let negSortCol = 'diffPct';
-    let negSortAsc = false; // default: biggest diff first
+    let negSortAsc = false;
 
     const section = document.createElement('div');
     section.className = 'neg-section';
     section.innerHTML = `
       <h3 class="neg-heading">
         <span class="neg-icon" style="background:${sup.color}">${sup.icon}</span>
-        Förhandla med ${sup.name}
-        <small>Där ${comp.name} är billigare</small>
+        Förhandla dessa rabattgrupper hos ${sup.name}
       </h3>
     `;
 
@@ -354,7 +367,6 @@ function renderNegotiation(dynamicRecommendations, supA, supB, idA, idB) {
     table.className = 'neg-table';
 
     function renderNegRows() {
-      // Sort
       const sorted = [...filteredRecs].sort((a, b) => {
         let va = a[negSortCol], vb = b[negSortCol];
         if (typeof va === 'string') return negSortAsc ? va.localeCompare(vb) : vb.localeCompare(va);
@@ -363,7 +375,6 @@ function renderNegotiation(dynamicRecommendations, supA, supB, idA, idB) {
 
       table.innerHTML = '';
 
-      // Header
       const header = document.createElement('div');
       header.className = 'neg-header';
       const cols = [
@@ -393,10 +404,16 @@ function renderNegotiation(dynamicRecommendations, supA, supB, idA, idB) {
       });
       table.appendChild(header);
 
-      // Rows (all, scrollable container handles visibility)
+      // Fixed scale: 0–1000, anything above is clamped to max
+      const maxImpact = 1000;
+
       sorted.forEach(rec => {
         const row = document.createElement('div');
         row.className = 'neg-row';
+        // HSL: 120 = green, 0 = red. Scale impact 0..max → 120..0
+        const ratio = Math.min(rec.impactScore / maxImpact, 1);
+        const hue = Math.round(120 * (1 - ratio));
+        const barWidth = Math.max(ratio * 100, 4); // min 4% so it's visible
         row.innerHTML = `
           <span class="neg-group">${rec.group}</span>
           <span>${rec.losingCount || rec.articleCount} <small style="color:var(--text-muted)">(${rec.articleCount})</small></span>
@@ -404,7 +421,9 @@ function renderNegotiation(dynamicRecommendations, supA, supB, idA, idB) {
           <span>${rec.currentDiscount.toFixed(1)}%</span>
           <span class="text-green">${rec.targetDiscount.toFixed(1)}%</span>
           <span style="font-weight:600; color:var(--accent)">${rec.diffPct.toFixed(1)}%</span>
-          <span style="font-weight:600; color:var(--text-secondary)">${rec.impactScore.toFixed(0)}</span>
+          <span class="neg-impact-cell" title="${rec.impactScore.toFixed(0)}">
+            <span class="neg-impact-bar" style="width:${barWidth}%; background:hsl(${hue}, 70%, 45%);"></span>
+          </span>
         `;
         table.appendChild(row);
       });
@@ -412,33 +431,31 @@ function renderNegotiation(dynamicRecommendations, supA, supB, idA, idB) {
 
     renderNegRows();
 
-    // Make table scrollable showing ~10 rows
     table.style.maxHeight = '400px';
     table.style.overflowY = 'auto';
 
     section.appendChild(table);
     container.appendChild(section);
-  });
+  }
 }
 
 // ── Filters & Article Table ────────────────────────────────────────
 
 let filtersInitialized = false;
 
-function setupFilters(results, idA, idB) {
+function setupFilters(results) {
   if (filtersInitialized) return;
   filtersInitialized = true;
 
-  const supA = SUPPLIERS[idA];
-  const supB = SUPPLIERS[idB];
+  const supplierIds = results.supplierIds;
 
-  // Cheapest filter options
+  // Cheapest filter options — dynamic per supplier
   const cheapestSelect = document.getElementById('f-cheapest');
-  cheapestSelect.innerHTML = `
-    <option value="">Alla</option>
-    <option value="${idA}">${supA.name}</option>
-    <option value="${idB}">${supB.name}</option>
-  `;
+  let opts = '<option value="">Alla</option>';
+  for (const id of supplierIds) {
+    opts += `<option value="${id}">${SUPPLIERS[id].name}</option>`;
+  }
+  cheapestSelect.innerHTML = opts;
 
   // Apply button
   document.getElementById('btn-apply-filters').addEventListener('click', () => {
@@ -498,19 +515,17 @@ function setupFilters(results, idA, idB) {
   // Build category checkboxes
   buildCategoryCheckboxes();
 
-  // Update table headers
-  const thA = document.getElementById('th-net-a');
-  const thB = document.getElementById('th-net-b');
-  const thMarkupA = document.getElementById('th-markup-a');
-  const thMarkupB = document.getElementById('th-markup-b');
-  const thGrpA = document.getElementById('th-grp-a');
-  const thGrpB = document.getElementById('th-grp-b');
-  if (thA) thA.textContent = `${supA.name} Netto`;
-  if (thB) thB.textContent = `${supB.name} Netto`;
-  if (thMarkupA) thMarkupA.textContent = `${supA.name} %`;
-  if (thMarkupB) thMarkupB.textContent = `${supB.name} %`;
-  if (thGrpA) thGrpA.textContent = `${supA.name} Grupp`;
-  if (thGrpB) thGrpB.textContent = `${supB.name} Grupp`;
+  // Build dynamic table header
+  const tableHead = document.querySelector('#article-table thead tr');
+  if (tableHead) {
+    let headerHTML = '<th data-sort="enr">E-nummer</th>';
+    for (const id of supplierIds) {
+      const name = SUPPLIERS[id].name;
+      headerHTML += `<th data-sort="net_${id}">${name}</th>`;
+      headerHTML += `<th data-sort="markup_${id}">%</th>`;
+    }
+    tableHead.innerHTML = headerHTML;
+  }
 
   // Column sorting
   document.querySelectorAll('#article-table th[data-sort]').forEach(th => {
@@ -556,7 +571,9 @@ function applyFilters() {
     source = source.filter(a => referensEnr.has(a.enr));
   } else if (refFilterMode === 'groups' && refGroupsList.length > 0) {
     const grpSet = new Set(refGroupsList.map(g => g.toUpperCase()));
-    source = source.filter(a => grpSet.has(a.grpA.toUpperCase()) || grpSet.has(a.grpB.toUpperCase()));
+    source = source.filter(a => {
+      return Object.values(a.suppliers).some(s => grpSet.has(s.grp.toUpperCase()));
+    });
   }
 
   // Favoritlista filter
@@ -564,36 +581,48 @@ function applyFilters() {
     source = source.filter(a => favEnrSet.has(a.enr));
   } else if (favFilterMode === 'groups' && favGroupsList.length > 0) {
     const grpSet = new Set(favGroupsList.map(g => g.toUpperCase()));
-    source = source.filter(a => grpSet.has(a.grpA.toUpperCase()) || grpSet.has(a.grpB.toUpperCase()));
+    source = source.filter(a => {
+      return Object.values(a.suppliers).some(s => grpSet.has(s.grp.toUpperCase()));
+    });
   }
 
   // Filter out articles from groups below min-articles threshold
   if (minArticlesPerGroup > 0) {
     const grpCounts = {};
     source.forEach(a => {
-      grpCounts[a.grpA] = (grpCounts[a.grpA] || 0) + 1;
+      for (const s of Object.values(a.suppliers)) {
+        grpCounts[s.grp] = (grpCounts[s.grp] || 0) + 1;
+      }
     });
-    source = source.filter(a => (grpCounts[a.grpA] || 0) >= minArticlesPerGroup);
+    source = source.filter(a => {
+      return Object.values(a.suppliers).some(s => (grpCounts[s.grp] || 0) >= minArticlesPerGroup);
+    });
   }
 
   let filtered = filterArticles(source, filters);
 
   // Sort
   if (sortColumn) {
-    const sortFns = {
-      enr: (a, b) => a.enr.localeCompare(b.enr),
-      netA: (a, b) => a.netA - b.netA,
-      netB: (a, b) => a.netB - b.netB,
-      bestNet: (a, b) => a.bestNet - b.bestNet,
-      markupA: (a, b) => a.markupA - b.markupA,
-      markupB: (a, b) => a.markupB - b.markupB,
-      grpA: (a, b) => a.grpA.localeCompare(b.grpA),
-      grpB: (a, b) => a.grpB.localeCompare(b.grpB),
+    const fn = (a, b) => {
+      if (sortColumn === 'enr') return a.enr.localeCompare(b.enr);
+      if (sortColumn === 'bestNet') return a.bestNet - b.bestNet;
+      if (sortColumn === 'maxMarkup') return a.maxMarkup - b.maxMarkup;
+      // Dynamic supplier columns: net_xxx, markup_xxx
+      if (sortColumn.startsWith('net_')) {
+        const sid = sortColumn.slice(4);
+        const va = a.suppliers[sid]?.net || 0;
+        const vb = b.suppliers[sid]?.net || 0;
+        return va - vb;
+      }
+      if (sortColumn.startsWith('markup_')) {
+        const sid = sortColumn.slice(7);
+        const va = a.suppliers[sid]?.markup || 0;
+        const vb = b.suppliers[sid]?.markup || 0;
+        return va - vb;
+      }
+      return 0;
     };
-    const fn = sortFns[sortColumn];
-    if (fn) {
-      filtered.sort((a, b) => sortAsc ? fn(a, b) : fn(b, a));
-    }
+    filtered.sort((a, b) => sortAsc ? fn(a, b) : fn(b, a));
   }
 
   currentFiltered = filtered;
@@ -614,113 +643,77 @@ function applyFilters() {
   renderVirtualTable(filtered);
 
   // Re-calculate aggregations based purely on the filtered list
-  const [idA, idB] = currentResults.supplierIds;
-  const { dynamicGroups, dynamicRecommendations } = recalculateDynamicGroups(filtered, idA, idB);
+  const supplierIds = currentResults.supplierIds;
+  const dynamicRecommendations = recalculateDynamicGroups(filtered, supplierIds);
 
   // Read min-articles threshold
   const minVal = parseInt(document.getElementById('f-min-articles')?.value, 10);
   minArticlesPerGroup = isNaN(minVal) || minVal < 0 ? 0 : minVal;
 
-  const supA = SUPPLIERS[idA];
-  const supB = SUPPLIERS[idB];
-
-  // renderGroupCards and renderTopOpportunities removed — info merged into negotiation table
-  renderNegotiation(dynamicRecommendations, supA, supB, idA, idB);
+  renderNegotiation(dynamicRecommendations);
 }
 
-function recalculateDynamicGroups(articles, idA, idB) {
-  const groupsA = {};
-  const groupsB = {};
+function recalculateDynamicGroups(articles, supplierIds) {
+  // Build groups per supplier
+  const allGroups = {}; // { supplierId: { groupName: { count, articles, sumSavingsKr } } }
+  for (const id of supplierIds) {
+    allGroups[id] = {};
+  }
 
-  // Group items
   articles.forEach(a => {
-    // A groups
-    if (!groupsA[a.grpA]) {
-      groupsA[a.grpA] = { count: 0, articles: [], sumSavingsKr: 0, sumMarkupPct: 0, avgMarkup: 0, totalCurrentPrice: 0 };
-    }
-    groupsA[a.grpA].count++;
-    groupsA[a.grpA].articles.push(a);
-    // Accumulate savings: how much cheaper is B than A in this group
-    if (a.netA > 0 && a.netB > 0 && a.netA > a.netB) {
-      groupsA[a.grpA].sumSavingsKr += (a.netA - a.netB);
-    }
-    if (a.netA > 0 && a.netB > 0) {
-      groupsA[a.grpA].sumMarkupPct += (Math.max(a.netA, a.netB) / Math.min(a.netA, a.netB) - 1) * 100;
-    }
-
-    // B groups
-    if (!groupsB[a.grpB]) {
-      groupsB[a.grpB] = { count: 0, articles: [], sumSavingsKr: 0, sumMarkupPct: 0, avgMarkup: 0, totalCurrentPrice: 0 };
-    }
-    groupsB[a.grpB].count++;
-    groupsB[a.grpB].articles.push(a);
-    // Accumulate savings: how much cheaper is A than B in this group
-    if (a.netA > 0 && a.netB > 0 && a.netB > a.netA) {
-      groupsB[a.grpB].sumSavingsKr += (a.netB - a.netA);
-    }
-    if (a.netA > 0 && a.netB > 0) {
-      groupsB[a.grpB].sumMarkupPct += (Math.max(a.netA, a.netB) / Math.min(a.netA, a.netB) - 1) * 100;
+    for (const id of supplierIds) {
+      const supData = a.suppliers[id];
+      if (!supData) continue;
+      const grp = supData.grp;
+      if (!allGroups[id][grp]) {
+        allGroups[id][grp] = { count: 0, articles: [], sumSavingsKr: 0 };
+      }
+      allGroups[id][grp].count++;
+      allGroups[id][grp].articles.push(a);
+      // Savings: how much more expensive is this supplier vs best
+      if (supData.net > a.bestNet) {
+        allGroups[id][grp].sumSavingsKr += (supData.net - a.bestNet);
+      }
     }
   });
 
-  // Average them out
-  for (const g in groupsA) {
-    groupsA[g].avgMarkup = groupsA[g].sumMarkupPct / groupsA[g].count;
-  }
-  for (const g in groupsB) {
-    groupsB[g].avgMarkup = groupsB[g].sumMarkupPct / groupsB[g].count;
+  // Build recs per supplier
+  const dynamicRecommendations = {};
+  for (const id of supplierIds) {
+    dynamicRecommendations[id] = buildDynamicRecs(allGroups[id], id);
   }
 
-  const dynamicGroups = { [idA]: groupsA, [idB]: groupsB };
-
-  // Debug: check a sample group
-  const sampleKeyA = Object.keys(groupsA)[0];
-  if (sampleKeyA) {
-    const sg = groupsA[sampleKeyA];
-    console.log('[DEBUG recalc] sampleGroupA:', sampleKeyA, 'count:', sg.count, 'sumSavingsKr:', sg.sumSavingsKr);
-    if (sg.articles[0]) {
-      const a = sg.articles[0];
-      console.log('[DEBUG recalc] sample article: markupA=', a.markupA, 'markupB=', a.markupB, 'netA=', a.netA, 'netB=', a.netB, 'cheapest=', a.cheapest, 'diffKr=', a.diffKr);
-    }
-  }
-
-  // Calculate generic recommendations based on new data
-  const recsA = buildDynamicRecs(groupsA, idA, idB);
-  const recsB = buildDynamicRecs(groupsB, idB, idA);
-  console.log('[DEBUG recalc] recsA length:', recsA.length, 'recsB length:', recsB.length);
-  const dynamicRecommendations = { [idA]: recsA, [idB]: recsB };
-
-  return { dynamicGroups, dynamicRecommendations };
+  return dynamicRecommendations;
 }
 
-function buildDynamicRecs(groups, supplierId, competitorId) {
+function buildDynamicRecs(groups, supplierId) {
   const recs = [];
-  const isA = supplierId === currentResults.supplierIds[0];
 
   for (const [grp, data] of Object.entries(groups)) {
     const totalArticles = data.articles.length;
     if (totalArticles === 0) continue;
 
-    let losingCount = 0;       // articles where we're more expensive
-    let totalMyNet = 0;        // sum of our net prices (all articles)
-    let totalBestNet = 0;      // sum of best net price per article
-    let totalMyList = 0;       // sum of our list prices (if available)
-    let sumMyDisc = 0;         // sum of our discounts (all articles)
-    let sumLosingMarkup = 0;   // sum of markup on losing articles only
+    let losingCount = 0;
+    let totalMyNet = 0;
+    let totalBestNet = 0;
+    let totalMyList = 0;
+    let sumMyDisc = 0;
+    let sumLosingMarkup = 0;
     let hasListPrices = true;
 
     data.articles.forEach(a => {
-      const myMarkup = isA ? a.markupA : a.markupB;
-      const myDisc = isA ? a.discA : a.discB;
-      const meNet = isA ? a.netA : a.netB;
-      const meList = isA ? a.listA : a.listB;
-      const compNet = isA ? a.netB : a.netA;
+      const supData = a.suppliers[supplierId];
+      if (!supData) return;
+      const meNet = supData.net;
+      const meList = supData.list || 0;
+      const myMarkup = supData.markup;
+      const myDisc = supData.disc || 0;
 
-      if (meNet <= 0 || compNet <= 0) return;
+      if (meNet <= 0 || a.bestNet <= 0) return;
 
       totalMyNet += meNet;
-      totalBestNet += Math.min(meNet, compNet);
-      sumMyDisc += (myDisc || 0);
+      totalBestNet += a.bestNet;
+      sumMyDisc += myDisc;
 
       if (meList > 0) {
         totalMyList += meList;
@@ -728,30 +721,25 @@ function buildDynamicRecs(groups, supplierId, competitorId) {
         hasListPrices = false;
       }
 
-      if (myMarkup > 0.01 && meNet > compNet) {
+      if (myMarkup > 0.01 && meNet > a.bestNet) {
         losingCount++;
         sumLosingMarkup += myMarkup;
       }
     });
 
-    // Only show groups where there's actual savings potential
     const totalSavingsKr = totalMyNet - totalBestNet;
     if (totalSavingsKr <= 0 || losingCount === 0) continue;
 
     const avgCurrentDisc = sumMyDisc / totalArticles;
     const avgLosingMarkup = sumLosingMarkup / losingCount;
 
-    // Calculate target discount from the whole group
     let targetDiscount;
     if (hasListPrices && totalMyList > 0) {
-      // Best case: use actual list prices
       targetDiscount = (1 - totalBestNet / totalMyList) * 100;
     } else if (avgCurrentDisc > 0 && avgCurrentDisc < 100) {
-      // Derive implied list from current discount
       const impliedTotalList = totalMyNet / (1 - avgCurrentDisc / 100);
       targetDiscount = (1 - totalBestNet / impliedTotalList) * 100;
     } else {
-      // Fallback: current discount + needed reduction as % of net
       targetDiscount = avgCurrentDisc + (totalSavingsKr / totalMyNet * 100);
     }
 
@@ -776,12 +764,10 @@ function renderFilteredSummary(articles) {
   const el = document.getElementById('filtered-summary');
   if (!el) return;
 
-  const stats = computeStats(articles);
-  const [idA, idB] = currentResults.supplierIds;
-  const supA = SUPPLIERS[idA];
-  const supB = SUPPLIERS[idB];
+  const supplierIds = currentResults.supplierIds;
+  const stats = computeStats(articles, supplierIds);
 
-  el.innerHTML = `
+  let html = `
     <div class="fs-grid">
       <div class="fs-stat">
         <span class="fs-label">Antal</span>
@@ -795,16 +781,18 @@ function renderFilteredSummary(articles) {
         <span class="fs-label">Median markup</span>
         <span class="fs-value">${stats.medianMaxMarkup.toFixed(1)}%</span>
       </div>
-      <div class="fs-stat">
-        <span class="fs-label">${supA.name} billigare</span>
-        <span class="fs-value" style="color:${supA.color}">${stats.winsA.toLocaleString('sv-SE')}</span>
-      </div>
-      <div class="fs-stat">
-        <span class="fs-label">${supB.name} billigare</span>
-        <span class="fs-value" style="color:${supB.color}">${stats.winsB.toLocaleString('sv-SE')}</span>
-      </div>
-    </div>
   `;
+  for (const id of supplierIds) {
+    const sup = SUPPLIERS[id];
+    html += `
+      <div class="fs-stat">
+        <span class="fs-label">${sup.name} billigare</span>
+        <span class="fs-value" style="color:${sup.color}">${(stats.wins[id] || 0).toLocaleString('sv-SE')}</span>
+      </div>
+    `;
+  }
+  html += '</div>';
+  el.innerHTML = html;
 }
 
 const MAX_TABLE_ROWS = 500;
@@ -813,52 +801,52 @@ let tableBody = null;
 
 function renderVirtualTable(articles) {
   virtualData = articles;
-  tableBody = document.getElementById('article-tbody');
   const scrollContainer = document.getElementById('virtual-scroll-container');
+  tableBody = document.getElementById('article-tbody');
 
   if (!tableBody) return;
 
-  // Cap to MAX_TABLE_ROWS for performance
+  const supplierIds = currentResults.supplierIds;
   const capped = articles.slice(0, MAX_TABLE_ROWS);
 
-  // Set up scrollable container
   if (scrollContainer) {
     scrollContainer.style.maxHeight = '600px';
     scrollContainer.style.overflowY = 'auto';
   }
 
-  // Remove spacers if they exist (no longer needed)
+  // Remove spacers if they exist
   const spacerTop = document.getElementById('spacer-top');
   const spacerBottom = document.getElementById('spacer-bottom');
   if (spacerTop) spacerTop.style.height = '0px';
   if (spacerBottom) spacerBottom.style.height = '0px';
 
-  // Render rows
+  // Render rows with dynamic supplier columns
   const fragment = document.createDocumentFragment();
   for (let i = 0; i < capped.length; i++) {
     const a = capped[i];
     const tr = document.createElement('tr');
-    const clsA = a.markupA > 0.01 ? 'text-red' : 'text-green';
-    const clsB = a.markupB > 0.01 ? 'text-red' : 'text-green';
-    tr.innerHTML = `
-      <td>${a.enr}</td>
-      <td>${a.netA.toFixed(2)}</td>
-      <td>${a.netB.toFixed(2)}</td>
-      <td>${a.bestNet.toFixed(2)}</td>
-      <td class="${clsA}">${a.markupA < 0.01 ? '0%' : '+' + a.markupA.toFixed(1) + '%'}</td>
-      <td class="${clsB}">${a.markupB < 0.01 ? '0%' : '+' + a.markupB.toFixed(1) + '%'}</td>
-      <td>${a.grpA}</td>
-      <td>${a.grpB}</td>
-    `;
+    let cells = `<td>${a.enr}</td>`;
+    for (const id of supplierIds) {
+      const s = a.suppliers[id];
+      if (s) {
+        const cls = s.markup > 0.01 ? 'text-red' : 'text-green';
+        cells += `<td>${s.net.toFixed(2)}</td>`;
+        cells += `<td class="${cls}">${s.markup < 0.01 ? '0%' : '+' + s.markup.toFixed(1) + '%'}</td>`;
+      } else {
+        cells += '<td>-</td><td>-</td>';
+      }
+    }
+    tr.innerHTML = cells;
     fragment.appendChild(tr);
   }
   tableBody.innerHTML = '';
   tableBody.appendChild(fragment);
 
   // Show a note if capped
+  const totalCols = 1 + supplierIds.length * 2;
   if (articles.length > MAX_TABLE_ROWS) {
     const note = document.createElement('tr');
-    note.innerHTML = `<td colspan="8" style="text-align:center; color:var(--text-secondary); padding:0.75rem;">Visar ${MAX_TABLE_ROWS} av ${articles.length.toLocaleString('sv-SE')} artiklar. Filtrera för att se fler.</td>`;
+    note.innerHTML = `<td colspan="${totalCols}" style="text-align:center; color:var(--text-secondary); padding:0.75rem;">Visar ${MAX_TABLE_ROWS} av ${articles.length.toLocaleString('sv-SE')} artiklar. Filtrera för att se fler.</td>`;
     tableBody.appendChild(note);
   }
 }

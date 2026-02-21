@@ -28,36 +28,29 @@
                     </svg>
                 </div>
                 <h1 class="brand-name">Prisjämför</h1>
-                <p class="brand-tagline">Jämför grossistpriser. Hitta besparingar. Förhandla smartare.</p>
+                <p class="brand-tagline">Jämför grossistpriser — hitta besparingar direkt.</p>
             </div>
 
-            <!-- Privacy badge -->
-            <div class="privacy-badge">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
-                    <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
-                </svg>
-                <span>Din data lämnar aldrig din dator</span>
-            </div>
+            <!-- Upload feedback (above drop zone) -->
+            <div id="upload-feedback" class="upload-feedback">&nbsp;</div>
 
-            <!-- Drop Zone -->
+            <!-- Drop Zone (compact) -->
             <div id="drop-zone" class="drop-zone">
                 <div class="drop-icon">
-                    <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
+                    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
                         stroke-linecap="round" stroke-linejoin="round">
                         <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
                         <polyline points="17 8 12 3 7 8"></polyline>
                         <line x1="12" y1="3" x2="12" y2="15"></line>
                     </svg>
                 </div>
-                <p class="drop-text">Dra & släpp <strong>två rabattavtal</strong> här för att jämföra</p>
-                <p class="drop-hint">Stöder Ahlsell (.txt), Rexel (.txt/.csv) och Solar (.csv)</p>
-                <button id="browse-btn" class="browse-btn">Välj filer</button>
+                <div class="drop-content">
+                    <p class="drop-text">Dra & släpp rabattavtal här <span class="drop-hint">— eller</span></p>
+                    <button id="browse-btn" class="browse-btn">Välj filer</button>
+                </div>
                 <input type="file" id="file-input" multiple accept=".txt,.csv" hidden>
             </div>
 
-            <!-- Upload feedback -->
-            <div id="upload-feedback" class="upload-feedback" style="display:none;"></div>
 
             <!-- Supplier chips -->
             <div id="supplier-chips" class="supplier-chips"></div>
@@ -65,29 +58,38 @@
             <!-- Analyze button -->
             <button id="analyze-btn" class="analyze-btn" disabled>Ladda upp minst 2 avtal</button>
 
-            <!-- How it works -->
+            <!-- Privacy badge (footnote) -->
+            <div class="privacy-footnote">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+                    <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+                </svg>
+                <span>Din data lämnar aldrig din dator</span>
+            </div>
+
+            <!-- How it works (horizontal) -->
             <div class="how-it-works">
                 <h3>Hur fungerar det?</h3>
                 <div class="steps">
                     <div class="step">
                         <div class="step-num">1</div>
                         <div class="step-text">
-                            <strong>Ladda upp avtal</strong>
-                            <span>Dra & släpp dina rabattavtal — ett per grossist</span>
+                            <strong>Ladda upp</strong>
+                            <span>Dra & släpp rabattavtal</span>
                         </div>
                     </div>
                     <div class="step">
                         <div class="step-num">2</div>
                         <div class="step-text">
-                            <strong>Automatisk analys</strong>
-                            <span>Vi matchar artiklar, beräknar nettopriser och jämför</span>
+                            <strong>Analys</strong>
+                            <span>Vi matchar och jämför</span>
                         </div>
                     </div>
                     <div class="step">
                         <div class="step-num">3</div>
                         <div class="step-text">
-                            <strong>Rapport & export</strong>
-                            <span>Se var du sparar mest och exportera till Excel</span>
+                            <strong>Rapport</strong>
+                            <span>Se besparingar & exportera</span>
                         </div>
                     </div>
                 </div>
@@ -151,15 +153,9 @@
 
             <!-- Executive Summary -->
             <section class="section executive-summary" id="executive-summary">
-                <div class="hero-meta">
-                    <span class="hero-winner-label">Billigast totalt:</span>
-                    <span id="hero-winner" class="hero-winner-badge">—</span>
-                </div>
-                <h1 class="section-title" style="margin-bottom: 1.5rem;">Leverantörsjämförelse</h1>
                 <div id="savings-cards" class="savings-cards" style="margin-bottom: 2rem;"></div>
 
 
-                <p id="hero-insight" class="hero-insight"></p>
                 <div id="summary-stats" class="summary-stats"></div>
                 <details class="excluded-details" style="margin-top: 0.5rem;">
                     <summary
@@ -175,43 +171,18 @@
 
                 <!-- Filter Bar -->
                 <div id="filter-bar" class="filter-bar">
-                    <div class="filter-row">
-                        <div class="filter-group">
+                    <!-- Primary filters — always visible -->
+                    <div class="filter-row filter-row-primary">
+                        <div class="filter-group filter-group-grow">
                             <label for="f-enr-search">Sök E-nummer</label>
                             <input type="text" id="f-enr-search" placeholder="Sök...">
                         </div>
-                        <div class="filter-group">
-                            <label for="f-diff-min">Markup % min</label>
-                            <input type="number" id="f-diff-min" placeholder="0">
-                        </div>
-                        <div class="filter-group">
-                            <label for="f-diff-max">Markup % max</label>
-                            <input type="number" id="f-diff-max" placeholder="100">
-                        </div>
-                        <div class="filter-group">
-                            <label for="f-price-min">Pris min (kr)</label>
-                            <input type="number" id="f-price-min" placeholder="0">
-                        </div>
-                        <div class="filter-group">
-                            <label for="f-price-max">Pris max (kr)</label>
-                            <input type="number" id="f-price-max" placeholder="∞">
-                        </div>
-                        <div class="filter-group">
-                            <label for="f-cheapest">Billigast</label>
-                            <select id="f-cheapest">
-                                <option value="">Alla</option>
-                            </select>
-                        </div>
-                        <div class="filter-group">
-                            <label for="f-min-articles">Min art/grupp</label>
-                            <input type="number" id="f-min-articles" placeholder="0" min="0" value="">
-                        </div>
-                        <div class="filter-group">
+                        <div class="filter-group filter-group-grow">
                             <label for="f-group">Rabattgrupp</label>
                             <input type="text" id="f-group" placeholder="t.ex. VVS01">
                         </div>
                         <div class="filter-group filter-group-lookup">
-                            <label for="f-lookup-enr">Slå upp E-nr → grupp</label>
+                            <label for="f-lookup-enr">E-nr → grupp</label>
                             <div class="lookup-row">
                                 <input type="text" id="f-lookup-enr" placeholder="E-nummer">
                                 <button id="btn-lookup-enr" class="btn-lookup" title="Hämta rabattgrupp">Hämta</button>
@@ -227,6 +198,37 @@
                                 title="Filtrera till alla grupper i referensmall">Ref: Grupper</button>
                         </div>
                     </div>
+
+                    <!-- Advanced filters — collapsible -->
+                    <details class="filter-advanced-panel">
+                        <summary>Avancerade filter</summary>
+                        <div class="filter-row filter-row-advanced">
+                            <div class="filter-group">
+                                <label for="f-diff-min">Markup % min</label>
+                                <input type="number" id="f-diff-min" placeholder="0">
+                            </div>
+                            <div class="filter-group">
+                                <label for="f-diff-max">Markup % max</label>
+                                <input type="number" id="f-diff-max" placeholder="100">
+                            </div>
+                            <div class="filter-group">
+                                <label for="f-price-min">Pris min (kr)</label>
+                                <input type="number" id="f-price-min" placeholder="0">
+                            </div>
+                            <div class="filter-group">
+                                <label for="f-price-max">Pris max (kr)</label>
+                                <input type="number" id="f-price-max" placeholder="∞">
+                            </div>
+                            <div class="filter-group">
+                                <label for="f-min-articles">Min art/grupp</label>
+                                <input type="number" id="f-min-articles" placeholder="0" min="0" value="">
+                            </div>
+                            <!-- Hidden cheapest select — kept for JS compatibility -->
+                            <select id="f-cheapest" style="display:none">
+                                <option value="">Alla</option>
+                            </select>
+                        </div>
+                    </details>
 
                     <!-- Favoritlista Panel -->
                     <details id="fav-panel" class="fav-panel">
@@ -276,14 +278,7 @@
                     <table id="article-table" class="article-table article-table-body">
                         <thead>
                             <tr>
-                                <th data-sort="enr">E-nummer</th>
-                                <th data-sort="netA" id="th-net-a">Netto A</th>
-                                <th data-sort="netB" id="th-net-b">Netto B</th>
-                                <th data-sort="bestNet">Bäst (kr)</th>
-                                <th data-sort="markupA" id="th-markup-a">A %</th>
-                                <th data-sort="markupB" id="th-markup-b">B %</th>
-                                <th data-sort="grpA" id="th-grp-a">Grupp A</th>
-                                <th data-sort="grpB" id="th-grp-b">Grupp B</th>
+                                <!-- Columns generated dynamically by setupFilters() -->
                             </tr>
                         </thead>
                         <tbody id="article-tbody"></tbody>

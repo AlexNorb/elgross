@@ -1,5 +1,6 @@
 // engine.js — Supplier-agnostic comparison engine
 // Takes parsed supplier data and produces comparison results.
+// Supports N suppliers (2 or more).
 
 import { SUPPLIERS } from './suppliers.js';
 
@@ -69,68 +70,107 @@ function computeNetPrices(gnpArticles, discounts) {
 }
 
 /**
- * Compare suppliers and produce match results.
+ * Compare N suppliers and produce match results.
  * Uses markup model: cheapest = 0%, others = % more expensive.
+ * An article is included if it exists in ≥2 suppliers with valid prices.
  * @param {Object} supplierData — { supplierId: Map<artNo, {list, grp, disc, net, unit}> }
- * @returns {Object} { matched[], stats, supplierData, groups, recommendations }
+ * @returns {Object} { matched[], stats, supplierIds, supplierData }
  */
 function compareSuppliers(supplierData) {
     const supplierIds = Object.keys(supplierData);
     if (supplierIds.length < 2) throw new Error('Minst 2 leverantörer krävs');
 
-    const [idA, idB] = supplierIds;
-    const dataA = supplierData[idA];
-    const dataB = supplierData[idB];
-
-    const allArticles = new Set([...dataA.keys(), ...dataB.keys()]);
+    // Collect all unique article numbers
+    const allArticles = new Set();
+    for (const id of supplierIds) {
+        for (const artNo of supplierData[id].keys()) {
+            allArticles.add(artNo);
+        }
+    }
 
     const matched = [];
-    let winsA = 0, winsB = 0, equal = 0;
-    let unitMismatch = 0, onlyA = 0, onlyB = 0, missingAgreement = 0, zeroPrice = 0, highMarkup = 0;
+    const wins = {};
+    supplierIds.forEach(id => wins[id] = 0);
+    let equalCount = 0;
+    let unitMismatch = 0, missingAgreement = 0, zeroPrice = 0, highMarkup = 0;
+    const onlyCounts = {};
+    supplierIds.forEach(id => onlyCounts[id] = 0);
     let sumMaxMarkup = 0;
 
     for (const artNo of allArticles) {
-        const a = dataA.get(artNo);
-        const b = dataB.get(artNo);
+        // Gather valid data from each supplier
+        const valid = {};
+        let skip = false;
 
-        if (!a || !b) {
-            if (a && !b) onlyA++;
-            if (!a && b) onlyB++;
+        for (const id of supplierIds) {
+            const d = supplierData[id].get(artNo);
+            if (!d) continue;
+            if (d.disc === null) { missingAgreement++; skip = true; break; }
+            if (d.net <= 0) { zeroPrice++; skip = true; break; }
+            valid[id] = d;
+        }
+        if (skip) continue;
+
+        const validIds = Object.keys(valid);
+
+        // Need at least 2 suppliers to compare
+        if (validIds.length < 2) {
+            if (validIds.length === 1) onlyCounts[validIds[0]]++;
             continue;
         }
 
-        if (a.disc === null || b.disc === null) { missingAgreement++; continue; }
-        if (a.net <= 0 || b.net <= 0) { zeroPrice++; continue; }
+        // Unit check — all must match (if non-empty)
+        const units = validIds.map(id => normalizeUnit(valid[id].unit)).filter(u => u);
+        if (units.length > 1 && new Set(units).size > 1) { unitMismatch++; continue; }
 
-        const uA = normalizeUnit(a.unit);
-        const uB = normalizeUnit(b.unit);
-        if (uA && uB && uA !== uB) { unitMismatch++; continue; }
+        // Find best net price
+        const nets = {};
+        validIds.forEach(id => nets[id] = valid[id].net);
+        const bestNet = Math.min(...Object.values(nets));
 
-        const netA = a.net;
-        const netB = b.net;
-        const bestNet = Math.min(netA, netB);
-        const markupA = bestNet > 0 ? ((netA - bestNet) / bestNet) * 100 : 0;
-        const markupB = bestNet > 0 ? ((netB - bestNet) / bestNet) * 100 : 0;
-        const maxMarkup = Math.max(markupA, markupB);
+        // Compute markup per supplier
+        const markups = {};
+        let maxMarkup = 0;
+        for (const id of validIds) {
+            markups[id] = bestNet > 0 ? ((nets[id] - bestNet) / bestNet) * 100 : 0;
+            maxMarkup = Math.max(maxMarkup, markups[id]);
+        }
 
         if (maxMarkup > 999) { highMarkup++; continue; }
 
+        // Determine cheapest supplier
         let cheapest;
-        if (Math.abs(markupA - markupB) < 0.01) { equal++; cheapest = 'equal'; }
-        else if (markupA < markupB) { winsA++; cheapest = idA; }
-        else { winsB++; cheapest = idB; }
+        const minMarkup = Math.min(...Object.values(markups));
+        const cheapestIds = validIds.filter(id => Math.abs(markups[id] - minMarkup) < 0.01);
+        if (cheapestIds.length === validIds.length) {
+            equalCount++;
+            cheapest = 'equal';
+        } else {
+            cheapest = cheapestIds[0];
+            wins[cheapest]++;
+        }
 
         sumMaxMarkup += maxMarkup;
 
+        // Build per-supplier data for this article
+        const suppliersObj = {};
+        for (const id of validIds) {
+            suppliersObj[id] = {
+                net: nets[id],
+                markup: markups[id],
+                grp: valid[id].grp,
+                disc: valid[id].disc,
+                list: valid[id].list
+            };
+        }
+
         matched.push({
             enr: artNo,
-            netA, netB, bestNet,
-            markupA, markupB, maxMarkup,
-            grpA: a.grp, grpB: b.grp,
-            discA: a.disc, discB: b.disc,
-            listA: a.list, listB: b.list,
-            unit: a.unit || b.unit || '',
-            cheapest
+            bestNet,
+            maxMarkup,
+            cheapest,
+            unit: units[0] || '',
+            suppliers: suppliersObj
         });
     }
 
@@ -140,125 +180,24 @@ function compareSuppliers(supplierData) {
     const totalMatched = matched.length;
     const avgMaxMarkup = totalMatched > 0 ? sumMaxMarkup / totalMatched : 0;
 
-    const groupStats = buildGroupAnalysis(matched, supplierIds);
-    const recommendations = buildRecommendations(matched, supplierIds, supplierData);
-
     return {
         matched,
         supplierIds,
         supplierData,
         stats: {
             totalMatched,
-            winsA, winsB, equal,
-            avgMaxMarkup,
-            totalSavings: matched.reduce((sum, a) => sum + Math.abs(a.netA - a.netB), 0)
+            wins,
+            equal: equalCount,
+            avgMaxMarkup
         },
         excluded: {
             unitMismatch,
-            onlyA, onlyB,
+            onlyCounts,
             missingAgreement,
             zeroPrice,
             highMarkup
-        },
-        groups: groupStats,
-        recommendations
+        }
     };
-}
-
-/**
- * Build per-group statistics for both suppliers.
- * Uses markup model: avgMarkup = average max markup in each group.
- */
-function buildGroupAnalysis(matched, supplierIds) {
-    const [idA, idB] = supplierIds;
-    const groupsA = {};
-    const groupsB = {};
-
-    matched.forEach(a => {
-        const gA = a.grpA;
-        if (!groupsA[gA]) groupsA[gA] = { count: 0, sumMarkup: 0, sumSavingsKr: 0, articles: [] };
-        groupsA[gA].count++;
-        groupsA[gA].sumMarkup += a.maxMarkup;
-        groupsA[gA].sumSavingsKr += Math.abs(a.netA - a.netB);
-        groupsA[gA].articles.push(a);
-
-        const gB = a.grpB;
-        if (!groupsB[gB]) groupsB[gB] = { count: 0, sumMarkup: 0, sumSavingsKr: 0, articles: [] };
-        groupsB[gB].count++;
-        groupsB[gB].sumMarkup += a.maxMarkup;
-        groupsB[gB].sumSavingsKr += Math.abs(a.netA - a.netB);
-        groupsB[gB].articles.push(a);
-    });
-
-    for (const g of Object.values(groupsA)) g.avgMarkup = g.sumMarkup / g.count;
-    for (const g of Object.values(groupsB)) g.avgMarkup = g.sumMarkup / g.count;
-
-    return { [idA]: groupsA, [idB]: groupsB };
-}
-
-/**
- * Build negotiation recommendations: for each supplier, find groups where
- * the competitor is cheaper and suggest target discounts.
- */
-function buildRecommendations(matched, supplierIds, supplierData) {
-    const [idA, idB] = supplierIds;
-    const recsA = []; // Groups where A is more expensive
-    const recsB = []; // Groups where B is more expensive
-
-    const groupsWhereALoses = {};
-    matched.forEach(a => {
-        if (a.markupA > 0.01) { // A is more expensive
-            const grp = a.grpA;
-            if (!groupsWhereALoses[grp]) groupsWhereALoses[grp] = { articles: [], totalSavingsKr: 0 };
-            groupsWhereALoses[grp].articles.push(a);
-            groupsWhereALoses[grp].totalSavingsKr += (a.netA - a.netB);
-        }
-    });
-
-    for (const [grp, data] of Object.entries(groupsWhereALoses)) {
-        const avgDiscA = data.articles.reduce((s, a) => s + a.discA, 0) / data.articles.length;
-        const avgDiscB = data.articles.reduce((s, a) => s + a.discB, 0) / data.articles.length;
-        const avgMarkup = data.articles.reduce((s, a) => s + a.markupA, 0) / data.articles.length;
-        recsA.push({
-            group: grp,
-            currentDiscount: avgDiscA,
-            competitorDiscount: avgDiscB,
-            targetDiscount: avgDiscA + (avgMarkup * avgDiscA / 100),
-            articleCount: data.articles.length,
-            totalImpactKr: data.totalSavingsKr,
-            avgMarkup
-        });
-    }
-
-    const groupsWhereBLoses = {};
-    matched.forEach(a => {
-        if (a.markupB > 0.01) { // B is more expensive
-            const grp = a.grpB;
-            if (!groupsWhereBLoses[grp]) groupsWhereBLoses[grp] = { articles: [], totalSavingsKr: 0 };
-            groupsWhereBLoses[grp].articles.push(a);
-            groupsWhereBLoses[grp].totalSavingsKr += (a.netB - a.netA);
-        }
-    });
-
-    for (const [grp, data] of Object.entries(groupsWhereBLoses)) {
-        const avgDiscA = data.articles.reduce((s, a) => s + a.discA, 0) / data.articles.length;
-        const avgDiscB = data.articles.reduce((s, a) => s + a.discB, 0) / data.articles.length;
-        const avgMarkup = data.articles.reduce((s, a) => s + a.markupB, 0) / data.articles.length;
-        recsB.push({
-            group: grp,
-            currentDiscount: avgDiscB,
-            competitorDiscount: avgDiscA,
-            targetDiscount: avgDiscB + (avgMarkup * avgDiscB / 100),
-            articleCount: data.articles.length,
-            totalImpactKr: data.totalSavingsKr,
-            avgMarkup
-        });
-    }
-
-    recsA.sort((a, b) => b.totalImpactKr - a.totalImpactKr);
-    recsB.sort((a, b) => b.totalImpactKr - a.totalImpactKr);
-
-    return { [idA]: recsA, [idB]: recsB };
 }
 
 /**
@@ -273,7 +212,8 @@ function filterArticles(matched, filters = {}) {
         if (filters.cheapest && a.cheapest !== filters.cheapest) return false;
         if (filters.groups && filters.groups.length > 0) {
             const grpUpper = filters.groups.map(g => g.toUpperCase());
-            if (!grpUpper.includes(a.grpA.toUpperCase()) && !grpUpper.includes(a.grpB.toUpperCase())) return false;
+            const articleGrps = Object.values(a.suppliers).map(s => s.grp.toUpperCase());
+            if (!articleGrps.some(g => grpUpper.includes(g))) return false;
         }
         if (filters.categories && filters.categories.length > 0) {
             if (!filters.categories.some(prefix => a.enr.startsWith(prefix))) return false;
@@ -291,22 +231,30 @@ function filterArticles(matched, filters = {}) {
 
 /**
  * Compute summary stats for a set of articles.
+ * @param {Array} articles — matched articles with suppliers object
+ * @param {Array} supplierIds — list of supplier IDs
  */
-function computeStats(articles) {
+function computeStats(articles, supplierIds) {
+    if (!supplierIds || supplierIds.length === 0) {
+        supplierIds = articles.length > 0 ? Object.keys(articles[0].suppliers) : [];
+    }
+    const wins = {};
+    supplierIds.forEach(id => wins[id] = 0);
+
     if (articles.length === 0) {
-        return { count: 0, avgMaxMarkup: 0, medianMaxMarkup: 0, winsA: 0, winsB: 0, totalSavingsKr: 0 };
+        return { count: 0, avgMaxMarkup: 0, medianMaxMarkup: 0, wins, equal: 0 };
     }
 
-    let sumMarkup = 0, winsA = 0, winsB = 0, totalKr = 0;
+    let sumMarkup = 0, equalCount = 0;
     const markups = [];
 
     articles.forEach(a => {
         sumMarkup += a.maxMarkup;
         markups.push(a.maxMarkup);
-        totalKr += Math.abs(a.netA - a.netB);
-        if (a.cheapest !== 'equal') {
-            if (a.markupA < a.markupB) winsA++;
-            else winsB++;
+        if (a.cheapest === 'equal') {
+            equalCount++;
+        } else if (wins[a.cheapest] !== undefined) {
+            wins[a.cheapest]++;
         }
     });
 
@@ -320,9 +268,8 @@ function computeStats(articles) {
         count: articles.length,
         avgMaxMarkup: sumMarkup / articles.length,
         medianMaxMarkup: median,
-        winsA,
-        winsB,
-        totalSavingsKr: totalKr
+        wins,
+        equal: equalCount
     };
 }
 
