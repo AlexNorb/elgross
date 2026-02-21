@@ -1034,9 +1034,26 @@ body {
     overflow: hidden;
 }
 
+.neg-table::-webkit-scrollbar {
+    width: 8px;
+}
+
+.neg-table::-webkit-scrollbar-track {
+    background: var(--bg-secondary);
+}
+
+.neg-table::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 4px;
+}
+
+.neg-table::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.15);
+}
+
 .neg-header {
     display: grid;
-    grid-template-columns: 1.5fr 0.7fr 1fr 1fr 1fr;
+    grid-template-columns: 1.5fr 0.7fr 0.9fr 0.9fr 0.7fr 0.7fr 0.8fr;
     padding: 10px 16px;
     font-size: 0.78rem;
     font-weight: 600;
@@ -1045,11 +1062,14 @@ body {
     letter-spacing: 0.05em;
     background: var(--bg-card);
     border-bottom: 1px solid var(--border);
+    position: sticky;
+    top: 0;
+    z-index: 2;
 }
 
 .neg-row {
     display: grid;
-    grid-template-columns: 1.5fr 0.7fr 1fr 1fr 1fr;
+    grid-template-columns: 1.5fr 0.7fr 0.9fr 0.9fr 0.7fr 0.7fr 0.8fr;
     padding: 10px 16px;
     font-size: 0.88rem;
     border-bottom: 1px solid var(--border);
@@ -1583,7 +1603,7 @@ body {
 
     .neg-header,
     .neg-row {
-        grid-template-columns: 1.2fr 0.5fr 0.8fr 0.8fr 0.8fr;
+        grid-template-columns: 1.2fr 0.5fr 0.7fr 0.7fr 0.6fr 0.6fr 0.7fr;
         font-size: 0.8rem;
     }
 }

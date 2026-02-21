@@ -113,7 +113,7 @@ function compareSuppliers(supplierData) {
         const markupB = bestNet > 0 ? ((netB - bestNet) / bestNet) * 100 : 0;
         const maxMarkup = Math.max(markupA, markupB);
 
-        if (maxMarkup > 5000) { highMarkup++; continue; }
+        if (maxMarkup > 999) { highMarkup++; continue; }
 
         let cheapest;
         if (Math.abs(markupA - markupB) < 0.01) { equal++; cheapest = 'equal'; }

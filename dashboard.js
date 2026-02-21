@@ -37,14 +37,12 @@ function renderDashboard(results) {
   // Savings Breakdown
   renderSavingsBreakdown(results, supA, supB, idA, idB);
 
-  // Group Analysis
-  renderGroupAnalysis(results, supA, supB, idA, idB);
+  // Group Analysis & Top Opportunities — removed, info merged into Förhandlingsunderlag
+  // renderGroupAnalysis(results, supA, supB, idA, idB);
+  // renderTopOpportunities(results, supA, supB, idA, idB);
 
-  // Top Opportunities
-  renderTopOpportunities(results, supA, supB, idA, idB);
-
-  // Negotiation Recommendations
-  renderNegotiation(results, supA, supB, idA, idB);
+  // Negotiation Recommendations (initial render uses engine.js recs)
+  renderNegotiation(results.recommendations, supA, supB, idA, idB);
 
   // Load referensmall
   loadReferensMall();
@@ -67,11 +65,7 @@ function renderExecutiveSummary(results, supA, supB) {
   const totalSavings = stats.totalSavings;
   const winner = stats.winsA >= stats.winsB ? supA : supB;
 
-  // Hero number
-  document.getElementById('hero-savings').textContent =
-    formatKr(totalSavings);
-  document.getElementById('hero-savings-label').textContent =
-    'Total besparingspotential om du alltid väljer billigast';
+
 
   // Winner badge
   const winnerEl = document.getElementById('hero-winner');
@@ -119,7 +113,7 @@ function renderExecutiveSummary(results, supA, supB) {
     <span class="excl-tag">Bara ${supB.name}: ${excluded.onlyB}</span>
     <span class="excl-tag">Saknar avtal: ${excluded.missingAgreement}</span>
     <span class="excl-tag">Pris = 0: ${excluded.zeroPrice}</span>
-    <span class="excl-tag">Markup &gt; 5000%: ${excluded.highMarkup}</span>
+    <span class="excl-tag">Markup &gt; 999%: ${excluded.highMarkup}</span>
   `;
 }
 
@@ -320,11 +314,31 @@ function renderNegotiation(dynamicRecommendations, supA, supB, idA, idB) {
   if (!container) return;
   container.innerHTML = '';
 
+  // We want to skip minArticlesPerGroup if there's an active specific filter.
+  const isTargetedSearch = (document.getElementById('f-enr-search')?.value.trim() !== '') ||
+    (document.getElementById('f-group')?.value.trim() !== '') ||
+    (favFilterMode !== null) ||
+    (refFilterMode !== null);
+
   [{ sup: supA, id: idA, recs: dynamicRecommendations[idA], comp: supB },
   { sup: supB, id: idB, recs: dynamicRecommendations[idB], comp: supA }].forEach(({ sup, recs, comp }) => {
     if (!recs || recs.length === 0) return;
-    const filteredRecs = recs.filter(rec => rec.articleCount >= minArticlesPerGroup);
+
+    // Bypass articles count threshold if user has directly filtered out items
+    let filteredRecs = isTargetedSearch ? recs : recs.filter(rec => rec.articleCount >= minArticlesPerGroup);
     if (filteredRecs.length === 0) return;
+
+    // Add computed fields for display/sorting
+    filteredRecs = filteredRecs.map(r => ({
+      ...r,
+      diffPct: r.targetDiscount - r.currentDiscount,
+      // Påverkan = artiklar × snitt markup × total kr (normalized)
+      impactScore: r.articleCount * (r.avgMarkup || 0) * r.totalImpactKr / 1000
+    }));
+
+    // Track sort state per section
+    let negSortCol = 'impactScore';
+    let negSortAsc = false; // default: highest impact first
 
     const section = document.createElement('div');
     section.className = 'neg-section';
@@ -338,28 +352,69 @@ function renderNegotiation(dynamicRecommendations, supA, supB, idA, idB) {
 
     const table = document.createElement('div');
     table.className = 'neg-table';
-    table.innerHTML = `
-      <div class="neg-header">
-        <span>Grupp</span>
-        <span>Artiklar</span>
-        <span>Nuv. rabatt</span>
-        <span>Mål</span>
-        <span>Total kr</span>
-      </div>
-    `;
 
-    filteredRecs.slice(0, 15).forEach(rec => {
-      const row = document.createElement('div');
-      row.className = 'neg-row';
-      row.innerHTML = `
-        <span class="neg-group">${rec.group}</span>
-        <span>${rec.articleCount}</span>
-        <span>${rec.currentDiscount.toFixed(1)}%</span>
-        <span class="text-green">${rec.targetDiscount.toFixed(1)}%</span>
-        <span class="neg-impact">${formatKr(rec.totalImpactKr)}</span>
-      `;
-      table.appendChild(row);
-    });
+    function renderNegRows() {
+      // Sort
+      const sorted = [...filteredRecs].sort((a, b) => {
+        let va = a[negSortCol], vb = b[negSortCol];
+        if (typeof va === 'string') return negSortAsc ? va.localeCompare(vb) : vb.localeCompare(va);
+        return negSortAsc ? va - vb : vb - va;
+      });
+
+      table.innerHTML = '';
+
+      // Header
+      const header = document.createElement('div');
+      header.className = 'neg-header';
+      const cols = [
+        { key: 'group', label: 'Grupp' },
+        { key: 'articleCount', label: 'Artiklar (dyrare)' },
+        { key: 'avgMarkup', label: 'Snitt markup' },
+        { key: 'currentDiscount', label: 'Nuv. rabatt' },
+        { key: 'targetDiscount', label: 'Mål' },
+        { key: 'diffPct', label: 'Diff %' },
+        { key: 'impactScore', label: 'Påverkan' }
+      ];
+      cols.forEach(({ key, label }) => {
+        const span = document.createElement('span');
+        span.textContent = label;
+        span.style.cursor = 'pointer';
+        span.style.userSelect = 'none';
+        if (negSortCol === key) {
+          span.textContent += negSortAsc ? ' ▲' : ' ▼';
+          span.style.fontWeight = '700';
+        }
+        span.addEventListener('click', () => {
+          if (negSortCol === key) { negSortAsc = !negSortAsc; }
+          else { negSortCol = key; negSortAsc = true; }
+          renderNegRows();
+        });
+        header.appendChild(span);
+      });
+      table.appendChild(header);
+
+      // Rows (all, scrollable container handles visibility)
+      sorted.forEach(rec => {
+        const row = document.createElement('div');
+        row.className = 'neg-row';
+        row.innerHTML = `
+          <span class="neg-group">${rec.group}</span>
+          <span>${rec.articleCount} <small style="color:var(--text-muted)">(${rec.losingCount || rec.articleCount})</small></span>
+          <span>${(rec.avgMarkup || 0).toFixed(1)}%</span>
+          <span>${rec.currentDiscount.toFixed(1)}%</span>
+          <span class="text-green">${rec.targetDiscount.toFixed(1)}%</span>
+          <span style="font-weight:600; color:var(--accent)">${rec.diffPct.toFixed(1)}%</span>
+          <span style="font-weight:600; color:var(--text-secondary)">${rec.impactScore.toFixed(0)}</span>
+        `;
+        table.appendChild(row);
+      });
+    }
+
+    renderNegRows();
+
+    // Make table scrollable showing ~10 rows
+    table.style.maxHeight = '400px';
+    table.style.overflowY = 'auto';
 
     section.appendChild(table);
     container.appendChild(section);
@@ -569,10 +624,7 @@ function applyFilters() {
   const supA = SUPPLIERS[idA];
   const supB = SUPPLIERS[idB];
 
-  const activeSort = document.querySelector('#group-sort .sort-btn.active')?.dataset.sort || 'score';
-
-  renderGroupCards(dynamicGroups, supA, supB, idA, idB, activeSort);
-  renderTopOpportunities(dynamicGroups, supA, supB, idA, idB);
+  // renderGroupCards and renderTopOpportunities removed — info merged into negotiation table
   renderNegotiation(dynamicRecommendations, supA, supB, idA, idB);
 }
 
@@ -588,8 +640,9 @@ function recalculateDynamicGroups(articles, idA, idB) {
     }
     groupsA[a.grpA].count++;
     groupsA[a.grpA].articles.push(a);
-    if (a.cheapest === idB && a.diffKr) {
-      groupsA[a.grpA].sumSavingsKr += a.diffKr;
+    // Accumulate savings: how much cheaper is B than A in this group
+    if (a.netA > 0 && a.netB > 0 && a.netA > a.netB) {
+      groupsA[a.grpA].sumSavingsKr += (a.netA - a.netB);
     }
     if (a.netA > 0 && a.netB > 0) {
       groupsA[a.grpA].sumMarkupPct += (Math.max(a.netA, a.netB) / Math.min(a.netA, a.netB) - 1) * 100;
@@ -601,8 +654,9 @@ function recalculateDynamicGroups(articles, idA, idB) {
     }
     groupsB[a.grpB].count++;
     groupsB[a.grpB].articles.push(a);
-    if (a.cheapest === idA && a.diffKr) {
-      groupsB[a.grpB].sumSavingsKr += a.diffKr;
+    // Accumulate savings: how much cheaper is A than B in this group
+    if (a.netA > 0 && a.netB > 0 && a.netB > a.netA) {
+      groupsB[a.grpB].sumSavingsKr += (a.netB - a.netA);
     }
     if (a.netA > 0 && a.netB > 0) {
       groupsB[a.grpB].sumMarkupPct += (Math.max(a.netA, a.netB) / Math.min(a.netA, a.netB) - 1) * 100;
@@ -619,9 +673,21 @@ function recalculateDynamicGroups(articles, idA, idB) {
 
   const dynamicGroups = { [idA]: groupsA, [idB]: groupsB };
 
+  // Debug: check a sample group
+  const sampleKeyA = Object.keys(groupsA)[0];
+  if (sampleKeyA) {
+    const sg = groupsA[sampleKeyA];
+    console.log('[DEBUG recalc] sampleGroupA:', sampleKeyA, 'count:', sg.count, 'sumSavingsKr:', sg.sumSavingsKr);
+    if (sg.articles[0]) {
+      const a = sg.articles[0];
+      console.log('[DEBUG recalc] sample article: markupA=', a.markupA, 'markupB=', a.markupB, 'netA=', a.netA, 'netB=', a.netB, 'cheapest=', a.cheapest, 'diffKr=', a.diffKr);
+    }
+  }
+
   // Calculate generic recommendations based on new data
   const recsA = buildDynamicRecs(groupsA, idA, idB);
   const recsB = buildDynamicRecs(groupsB, idB, idA);
+  console.log('[DEBUG recalc] recsA length:', recsA.length, 'recsB length:', recsB.length);
   const dynamicRecommendations = { [idA]: recsA, [idB]: recsB };
 
   return { dynamicGroups, dynamicRecommendations };
@@ -629,52 +695,82 @@ function recalculateDynamicGroups(articles, idA, idB) {
 
 function buildDynamicRecs(groups, supplierId, competitorId) {
   const recs = [];
-  for (const [grp, data] of Object.entries(groups)) {
-    if (data.sumSavingsKr <= 0) continue;
+  const isA = supplierId === currentResults.supplierIds[0];
 
-    // Sum list prices of pieces where they are more expensive
-    let requiredAdditionalDiscountKr = 0;
-    let totalListScope = 0;
-    let currentDiscountSum = 0;
-    let discCount = 0;
+  for (const [grp, data] of Object.entries(groups)) {
+    const totalArticles = data.articles.length;
+    if (totalArticles === 0) continue;
+
+    let losingCount = 0;       // articles where we're more expensive
+    let totalMyNet = 0;        // sum of our net prices (all articles)
+    let totalBestNet = 0;      // sum of best net price per article
+    let totalMyList = 0;       // sum of our list prices (if available)
+    let sumMyDisc = 0;         // sum of our discounts (all articles)
+    let sumLosingMarkup = 0;   // sum of markup on losing articles only
+    let hasListPrices = true;
 
     data.articles.forEach(a => {
-      const isA = supplierId === currentResults.supplierIds[0];
-      const meList = isA ? a.listA : a.listB;
+      const myMarkup = isA ? a.markupA : a.markupB;
+      const myDisc = isA ? a.discA : a.discB;
       const meNet = isA ? a.netA : a.netB;
-      const meDisc = isA ? a.discA : a.discB;
+      const meList = isA ? a.listA : a.listB;
       const compNet = isA ? a.netB : a.netA;
 
-      if (meList > 0 && meNet > compNet) {
-        requiredAdditionalDiscountKr += (meNet - compNet);
-        totalListScope += meList;
+      if (meNet <= 0 || compNet <= 0) return;
+
+      totalMyNet += meNet;
+      totalBestNet += Math.min(meNet, compNet);
+      sumMyDisc += (myDisc || 0);
+
+      if (meList > 0) {
+        totalMyList += meList;
+      } else {
+        hasListPrices = false;
       }
 
-      // Keep track of average existing discount
-      if (meDisc !== null && !isNaN(meDisc)) {
-        currentDiscountSum += meDisc;
-        discCount++;
+      if (myMarkup > 0.01 && meNet > compNet) {
+        losingCount++;
+        sumLosingMarkup += myMarkup;
       }
     });
 
-    if (totalListScope > 0 && requiredAdditionalDiscountKr > 0) {
-      const avgCurrentDisc = discCount > 0 ? (currentDiscountSum / discCount) : 0;
-      // How much more % off list do we need to match competitor?
-      const additionalDiscPct = (requiredAdditionalDiscountKr / totalListScope) * 100;
-      const targetDiscount = avgCurrentDisc + additionalDiscPct;
+    // Only show groups where there's actual savings potential
+    const totalSavingsKr = totalMyNet - totalBestNet;
+    if (totalSavingsKr <= 0 || losingCount === 0) continue;
 
-      recs.push({
-        group: grp,
-        articleCount: data.count,
-        currentDiscount: avgCurrentDisc,
-        targetDiscount: Math.min(targetDiscount, 99.9),
-        totalImpactKr: data.sumSavingsKr
-      });
+    const avgCurrentDisc = sumMyDisc / totalArticles;
+    const avgLosingMarkup = sumLosingMarkup / losingCount;
+
+    // Calculate target discount from the whole group
+    let targetDiscount;
+    if (hasListPrices && totalMyList > 0) {
+      // Best case: use actual list prices
+      targetDiscount = (1 - totalBestNet / totalMyList) * 100;
+    } else if (avgCurrentDisc > 0 && avgCurrentDisc < 100) {
+      // Derive implied list from current discount
+      const impliedTotalList = totalMyNet / (1 - avgCurrentDisc / 100);
+      targetDiscount = (1 - totalBestNet / impliedTotalList) * 100;
+    } else {
+      // Fallback: current discount + needed reduction as % of net
+      targetDiscount = avgCurrentDisc + (totalSavingsKr / totalMyNet * 100);
     }
+
+    targetDiscount = Math.max(0, Math.min(targetDiscount, 99.9));
+
+    recs.push({
+      group: grp,
+      articleCount: totalArticles,
+      losingCount: losingCount,
+      avgMarkup: avgLosingMarkup,
+      currentDiscount: avgCurrentDisc,
+      targetDiscount: targetDiscount,
+      totalImpactKr: totalSavingsKr
+    });
   }
 
   return recs.sort((a, b) => b.totalImpactKr - a.totalImpactKr);
 }
+
 
 function renderFilteredSummary(articles) {
   const el = document.getElementById('filtered-summary');
@@ -715,64 +811,37 @@ function renderFilteredSummary(articles) {
   `;
 }
 
-// ── Virtual Scrolling Table ────────────────────────────────────────
-
-const ROW_HEIGHT = 40;
-const BUFFER_ROWS = 10;
+const MAX_TABLE_ROWS = 500;
 let virtualData = [];
-let scrollContainer = null;
 let tableBody = null;
-let spacerTop = null;
-let spacerBottom = null;
 
 function renderVirtualTable(articles) {
   virtualData = articles;
-  scrollContainer = document.getElementById('virtual-scroll-container');
   tableBody = document.getElementById('article-tbody');
-  spacerTop = document.getElementById('spacer-top');
-  spacerBottom = document.getElementById('spacer-bottom');
+  const scrollContainer = document.getElementById('virtual-scroll-container');
 
-  if (!scrollContainer || !tableBody) return;
+  if (!tableBody) return;
 
-  // Remove old listener if any and add fresh
-  scrollContainer.removeEventListener('scroll', onVirtualScroll);
-  scrollContainer.addEventListener('scroll', onVirtualScroll);
+  // Cap to MAX_TABLE_ROWS for performance
+  const capped = articles.slice(0, MAX_TABLE_ROWS);
 
-  renderVisibleRows();
-}
-
-function onVirtualScroll() {
-  requestAnimationFrame(renderVisibleRows);
-}
-
-function renderVisibleRows() {
-  if (!scrollContainer || !virtualData.length) {
-    if (tableBody) tableBody.innerHTML = '';
-    if (spacerTop) spacerTop.style.height = '0px';
-    if (spacerBottom) spacerBottom.style.height = '0px';
-    return;
+  // Set up scrollable container
+  if (scrollContainer) {
+    scrollContainer.style.maxHeight = '600px';
+    scrollContainer.style.overflowY = 'auto';
   }
 
-  const scrollTop = scrollContainer.scrollTop;
-  const viewHeight = scrollContainer.clientHeight;
-  const totalRows = virtualData.length;
-  const totalHeight = totalRows * ROW_HEIGHT;
-
-  let startIdx = Math.floor(scrollTop / ROW_HEIGHT) - BUFFER_ROWS;
-  startIdx = Math.max(0, startIdx);
-  let endIdx = Math.ceil((scrollTop + viewHeight) / ROW_HEIGHT) + BUFFER_ROWS;
-  endIdx = Math.min(totalRows, endIdx);
-
-  // Spacers
-  spacerTop.style.height = (startIdx * ROW_HEIGHT) + 'px';
-  spacerBottom.style.height = ((totalRows - endIdx) * ROW_HEIGHT) + 'px';
+  // Remove spacers if they exist (no longer needed)
+  const spacerTop = document.getElementById('spacer-top');
+  const spacerBottom = document.getElementById('spacer-bottom');
+  if (spacerTop) spacerTop.style.height = '0px';
+  if (spacerBottom) spacerBottom.style.height = '0px';
 
   // Render rows
   const fragment = document.createDocumentFragment();
-  for (let i = startIdx; i < endIdx; i++) {
-    const a = virtualData[i];
+  for (let i = 0; i < capped.length; i++) {
+    const a = capped[i];
     const tr = document.createElement('tr');
-    tr.style.height = ROW_HEIGHT + 'px';
     const clsA = a.markupA > 0.01 ? 'text-red' : 'text-green';
     const clsB = a.markupB > 0.01 ? 'text-red' : 'text-green';
     tr.innerHTML = `
@@ -790,6 +859,13 @@ function renderVisibleRows() {
   }
   tableBody.innerHTML = '';
   tableBody.appendChild(fragment);
+
+  // Show a note if capped
+  if (articles.length > MAX_TABLE_ROWS) {
+    const note = document.createElement('tr');
+    note.innerHTML = `<td colspan="9" style="text-align:center; color:var(--text-secondary); padding:0.75rem;">Visar ${MAX_TABLE_ROWS} av ${articles.length.toLocaleString('sv-SE')} artiklar. Filtrera för att se fler.</td>`;
+    tableBody.appendChild(note);
+  }
 }
 
 // ── Category Checkboxes ───────────────────────────────────────────

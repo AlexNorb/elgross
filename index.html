@@ -151,53 +151,22 @@
 
             <!-- Executive Summary -->
             <section class="section executive-summary" id="executive-summary">
-                <div class="hero-savings-wrap">
-                    <p class="hero-pre">Total besparingspotential</p>
-                    <div id="hero-savings" class="hero-savings">0 kr</div>
-                    <p id="hero-savings-label" class="hero-label"></p>
-                </div>
                 <div class="hero-meta">
                     <span class="hero-winner-label">Billigast totalt:</span>
                     <span id="hero-winner" class="hero-winner-badge">—</span>
                 </div>
+                <h1 class="section-title" style="margin-bottom: 1.5rem;">Leverantörsjämförelse</h1>
+                <div id="savings-cards" class="savings-cards" style="margin-bottom: 2rem;"></div>
+
+
                 <p id="hero-insight" class="hero-insight"></p>
                 <div id="summary-stats" class="summary-stats"></div>
-                <div id="excluded-stats" class="excluded-stats"></div>
-            </section>
-
-            <!-- Savings Breakdown -->
-            <section class="section" id="savings-section">
-                <h2 class="section-title">Leverantörsjämförelse</h2>
-                <div id="savings-cards" class="savings-cards"></div>
-            </section>
-
-            <!-- Group Analysis -->
-            <section class="section" id="group-section">
-                <h2 class="section-title">Gruppanalys</h2>
-                <p class="section-sub">Klicka på en grupp för att filtrera artikeltabellen</p>
-                <div id="group-sort" class="group-sort"></div>
-                <div id="group-cards" class="group-cards"></div>
-            </section>
-
-            <!-- Top Opportunities -->
-            <section class="section" id="opportunities-section">
-                <h2 class="section-title">Största besparingsmöjligheterna</h2>
-                <div id="opportunities-list" class="opportunities-list"></div>
-            </section>
-
-            <!-- Negotiation -->
-            <section class="section" id="negotiation-section">
-                <h2 class="section-title">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-                        <polyline points="14 2 14 8 20 8"></polyline>
-                        <line x1="16" y1="13" x2="8" y2="13"></line>
-                        <line x1="16" y1="17" x2="8" y2="17"></line>
-                    </svg>
-                    Förhandlingsunderlag
-                </h2>
-                <p class="section-sub">Ta med dessa siffror till nästa avtalsmöte</p>
-                <div id="negotiation-content" class="negotiation-content"></div>
+                <details class="excluded-details" style="margin-top: 0.5rem;">
+                    <summary
+                        style="cursor:pointer; color:var(--text-secondary); font-size:0.85rem; padding: 0.5rem; background: var(--bg-secondary); border-radius: 4px; border: 1px solid var(--border-color);">
+                        Visa exkluderade artiklar</summary>
+                    <div id="excluded-stats" class="excluded-stats" style="margin-top: 0.5rem;"></div>
+                </details>
             </section>
 
             <!-- Article Table -->
@@ -304,7 +273,7 @@
 
                 <!-- Virtual Scroll Table -->
                 <div id="virtual-scroll-container" class="virtual-scroll-container">
-                    <table id="article-table" class="article-table">
+                    <table id="article-table" class="article-table article-table-body">
                         <thead>
                             <tr>
                                 <th data-sort="enr">E-nummer</th>
@@ -318,13 +287,41 @@
                                 <th>Enhet</th>
                             </tr>
                         </thead>
-                    </table>
-                    <div id="spacer-top"></div>
-                    <table class="article-table article-table-body">
                         <tbody id="article-tbody"></tbody>
                     </table>
-                    <div id="spacer-bottom"></div>
                 </div>
+            </section>
+
+            <!-- Group Analysis (replaced by enhanced Förhandlingsunderlag)
+            <section class="section" id="group-section">
+                <h2 class="section-title">Gruppanalys</h2>
+                <p class="section-sub">Baserat på filtrerat urval ovan</p>
+                <div id="group-sort" class="group-sort"></div>
+                <div id="group-cards" class="group-cards"></div>
+            </section>
+            -->
+
+            <!-- Top Opportunities
+            <section class="section" id="opportunities-section">
+                <h2 class="section-title">Största besparingsmöjligheterna</h2>
+                <p class="section-sub">Baserat på filtrerat urval ovan</p>
+                <div id="opportunities-list" class="opportunities-list"></div>
+            </section>
+            -->
+
+            <!-- Negotiation -->
+            <section class="section" id="negotiation-section">
+                <h2 class="section-title">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                        <polyline points="14 2 14 8 20 8"></polyline>
+                        <line x1="16" y1="13" x2="8" y2="13"></line>
+                        <line x1="16" y1="17" x2="8" y2="17"></line>
+                    </svg>
+                    Förhandlingsunderlag
+                </h2>
+                <p class="section-sub">Ta med dessa siffror till nästa avtalsmöte</p>
+                <div id="negotiation-content" class="negotiation-content"></div>
             </section>
         </div>
     </div>
