@@ -66,6 +66,11 @@ async function handleFiles(fileList) {
             continue;
         }
 
+        if (Object.keys(uploadedFiles).length >= 2 && !uploadedFiles[supplierId]) {
+            showUploadError(`Du har redan 2 filer uppladdade. Ta bort en innan du lägger till en ny.`);
+            continue;
+        }
+
         uploadedFiles[supplierId] = { name: file.name, content };
         showUploadSuccess(supplierId, file.name);
     }
@@ -150,11 +155,15 @@ function updateSupplierChips() {
 function updateAnalyzeButton() {
     const btn = document.getElementById('analyze-btn');
     const count = Object.keys(uploadedFiles).length;
-    const total = Object.keys(SUPPLIERS).length;
-    btn.disabled = count < 2 || isProcessing;
-    btn.textContent = count < 2
-        ? `Ladda upp minst 2 avtal (${count}/${total})`
-        : 'Analysera priser';
+    btn.disabled = count !== 2 || isProcessing;
+
+    if (count < 2) {
+        btn.textContent = `Väntar på 2 avtal (${count}/2)`;
+    } else if (count === 2) {
+        btn.textContent = 'Analysera priser';
+    } else {
+        btn.textContent = 'För många tillagda (ta bort så du har exakt 2)';
+    }
 }
 
 function showUploadError(msg) {

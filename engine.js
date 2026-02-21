@@ -44,8 +44,19 @@ function parseAgreement(supplierId, content) {
 function computeNetPrices(gnpArticles, discounts) {
     const results = new Map();
     for (const [artNo, data] of gnpArticles) {
-        const disc = discounts.get(data.grp) ?? null;
-        const net = disc !== null ? data.list * (1 - disc / 100) : null;
+        let net = null;
+        let disc = discounts.get(data.grp) ?? null;
+
+        if (discounts.has('NET:' + artNo)) {
+            net = discounts.get('NET:' + artNo);
+            disc = data.list > 0 ? (1 - net / data.list) * 100 : 0;
+        } else if (discounts.has('ART_DISC:' + artNo)) {
+            disc = discounts.get('ART_DISC:' + artNo);
+            net = data.list * (1 - disc / 100);
+        } else if (disc !== null) {
+            net = data.list * (1 - disc / 100);
+        }
+
         results.set(artNo, {
             list: data.list,
             grp: data.grp,
@@ -75,7 +86,7 @@ function compareSuppliers(supplierData) {
 
     const matched = [];
     let winsA = 0, winsB = 0, equal = 0;
-    let unitMismatch = 0, onlyA = 0, onlyB = 0, missingAgreement = 0, zeroPrice = 0;
+    let unitMismatch = 0, onlyA = 0, onlyB = 0, missingAgreement = 0, zeroPrice = 0, highMarkup = 0;
     let sumMaxMarkup = 0;
 
     for (const artNo of allArticles) {
@@ -101,6 +112,8 @@ function compareSuppliers(supplierData) {
         const markupA = bestNet > 0 ? ((netA - bestNet) / bestNet) * 100 : 0;
         const markupB = bestNet > 0 ? ((netB - bestNet) / bestNet) * 100 : 0;
         const maxMarkup = Math.max(markupA, markupB);
+
+        if (maxMarkup > 5000) { highMarkup++; continue; }
 
         let cheapest;
         if (Math.abs(markupA - markupB) < 0.01) { equal++; cheapest = 'equal'; }
@@ -144,7 +157,8 @@ function compareSuppliers(supplierData) {
             unitMismatch,
             onlyA, onlyB,
             missingAgreement,
-            zeroPrice
+            zeroPrice,
+            highMarkup
         },
         groups: groupStats,
         recommendations

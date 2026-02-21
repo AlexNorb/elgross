@@ -119,6 +119,7 @@ function renderExecutiveSummary(results, supA, supB) {
     <span class="excl-tag">Bara ${supB.name}: ${excluded.onlyB}</span>
     <span class="excl-tag">Saknar avtal: ${excluded.missingAgreement}</span>
     <span class="excl-tag">Pris = 0: ${excluded.zeroPrice}</span>
+    <span class="excl-tag">Markup &gt; 5000%: ${excluded.highMarkup}</span>
   `;
 }
 
@@ -163,13 +164,14 @@ function renderSavingsBreakdown(results, supA, supB, idA, idB) {
 
 // ── Group Analysis ─────────────────────────────────────────────────
 
-function renderGroupAnalysis(results, supA, supB, idA, idB) {
+function renderGroupAnalysis(dynamicGroups, supA, supB, idA, idB) {
   const container = document.getElementById('group-cards');
   container.innerHTML = '';
 
   // Sort controls
   const sortBar = document.getElementById('group-sort');
-  if (sortBar) {
+  if (sortBar && !sortBar.dataset.setup) {
+    sortBar.dataset.setup = 'true';
     sortBar.innerHTML = `
       <button class="sort-btn active" data-sort="score">Impact score</button>
       <button class="sort-btn" data-sort="count">Flest artiklar</button>
@@ -179,21 +181,25 @@ function renderGroupAnalysis(results, supA, supB, idA, idB) {
       btn.addEventListener('click', () => {
         sortBar.querySelectorAll('.sort-btn').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
-        renderGroupCards(results, supA, supB, idA, idB, btn.dataset.sort);
+        // Hacky way to re-render but maintain global state... ideally we'd store dynamicGroups glboally
+        // But for now, we just fetch active sort and let applyFilters handle it.
+        applyAllSections();
       });
     });
   }
 
-  renderGroupCards(results, supA, supB, idA, idB, 'score');
+  const activeSort = document.querySelector('#group-sort .sort-btn.active')?.dataset.sort || 'score';
+  renderGroupCards(dynamicGroups, supA, supB, idA, idB, activeSort);
 }
 
-function renderGroupCards(results, supA, supB, idA, idB, sortBy) {
+function renderGroupCards(dynamicGroups, supA, supB, idA, idB, sortBy) {
   const container = document.getElementById('group-cards');
+  if (!container) return;
   container.innerHTML = '';
 
   // Merge groups from both suppliers
   const allGroups = new Map();
-  for (const [grp, data] of Object.entries(results.groups[idA])) {
+  for (const [grp, data] of Object.entries(dynamicGroups[idA] || {})) {
     allGroups.set(grp, { ...data, supplier: supA, supplierId: idA });
   }
 
@@ -254,17 +260,18 @@ function renderGroupCards(results, supA, supB, idA, idB, sortBy) {
 
 // ── Top Opportunities ──────────────────────────────────────────────
 
-function renderTopOpportunities(results, supA, supB, idA, idB) {
+function renderTopOpportunities(dynamicGroups, supA, supB, idA, idB) {
   const container = document.getElementById('opportunities-list');
+  if (!container) return;
   container.innerHTML = '';
 
   // Top 10 groups by total savings, filtered by min articles
-  const groupsA = Object.entries(results.groups[idA])
+  const groupsA = Object.entries(dynamicGroups[idA] || {})
     .filter(([, d]) => d.count >= minArticlesPerGroup)
     .sort((a, b) => b[1].sumSavingsKr - a[1].sumSavingsKr)
     .slice(0, 10);
 
-  const groupsB = Object.entries(results.groups[idB] || {})
+  const groupsB = Object.entries(dynamicGroups[idB] || {})
     .filter(([, d]) => d.count >= minArticlesPerGroup)
     .sort((a, b) => b[1].sumSavingsKr - a[1].sumSavingsKr)
     .slice(0, 10);
@@ -308,12 +315,13 @@ function renderOppList(containerId, groups, winnerSup) {
 
 // ── Negotiation Recommendations ────────────────────────────────────
 
-function renderNegotiation(results, supA, supB, idA, idB) {
+function renderNegotiation(dynamicRecommendations, supA, supB, idA, idB) {
   const container = document.getElementById('negotiation-content');
+  if (!container) return;
   container.innerHTML = '';
 
-  [{ sup: supA, id: idA, recs: results.recommendations[idA], comp: supB },
-  { sup: supB, id: idB, recs: results.recommendations[idB], comp: supA }].forEach(({ sup, recs, comp }) => {
+  [{ sup: supA, id: idA, recs: dynamicRecommendations[idA], comp: supB },
+  { sup: supB, id: idB, recs: dynamicRecommendations[idB], comp: supA }].forEach(({ sup, recs, comp }) => {
     if (!recs || recs.length === 0) return;
     const filteredRecs = recs.filter(rec => rec.articleCount >= minArticlesPerGroup);
     if (filteredRecs.length === 0) return;
@@ -464,27 +472,10 @@ function setupFilters(results, idA, idB) {
 
 /**
  * Re-render all group-dependent sections + article table.
- * Reads the min-articles threshold so groups/opportunities/negotiation
- * are filtered consistently.
+ * Instead of duplicating logic, applying filters triggers generating the dynamic groups
+ * and rendering all sections.
  */
 function applyAllSections() {
-  if (!currentResults) return;
-
-  // Read min-articles threshold
-  const minVal = parseInt(document.getElementById('f-min-articles')?.value, 10);
-  minArticlesPerGroup = isNaN(minVal) || minVal < 0 ? 0 : minVal;
-
-  const [idA, idB] = currentResults.supplierIds;
-  const supA = SUPPLIERS[idA];
-  const supB = SUPPLIERS[idB];
-
-  // Re-render group-dependent sections
-  const activeSort = document.querySelector('#group-sort .sort-btn.active')?.dataset.sort || 'score';
-  renderGroupCards(currentResults, supA, supB, idA, idB, activeSort);
-  renderTopOpportunities(currentResults, supA, supB, idA, idB);
-  renderNegotiation(currentResults, supA, supB, idA, idB);
-
-  // Re-apply article filters
   applyFilters();
 }
 
@@ -566,6 +557,123 @@ function applyFilters() {
 
   // Render virtual table
   renderVirtualTable(filtered);
+
+  // Re-calculate aggregations based purely on the filtered list
+  const [idA, idB] = currentResults.supplierIds;
+  const { dynamicGroups, dynamicRecommendations } = recalculateDynamicGroups(filtered, idA, idB);
+
+  // Read min-articles threshold
+  const minVal = parseInt(document.getElementById('f-min-articles')?.value, 10);
+  minArticlesPerGroup = isNaN(minVal) || minVal < 0 ? 0 : minVal;
+
+  const supA = SUPPLIERS[idA];
+  const supB = SUPPLIERS[idB];
+
+  const activeSort = document.querySelector('#group-sort .sort-btn.active')?.dataset.sort || 'score';
+
+  renderGroupCards(dynamicGroups, supA, supB, idA, idB, activeSort);
+  renderTopOpportunities(dynamicGroups, supA, supB, idA, idB);
+  renderNegotiation(dynamicRecommendations, supA, supB, idA, idB);
+}
+
+function recalculateDynamicGroups(articles, idA, idB) {
+  const groupsA = {};
+  const groupsB = {};
+
+  // Group items
+  articles.forEach(a => {
+    // A groups
+    if (!groupsA[a.grpA]) {
+      groupsA[a.grpA] = { count: 0, articles: [], sumSavingsKr: 0, sumMarkupPct: 0, avgMarkup: 0, totalCurrentPrice: 0 };
+    }
+    groupsA[a.grpA].count++;
+    groupsA[a.grpA].articles.push(a);
+    if (a.cheapest === idB && a.diffKr) {
+      groupsA[a.grpA].sumSavingsKr += a.diffKr;
+    }
+    if (a.netA > 0 && a.netB > 0) {
+      groupsA[a.grpA].sumMarkupPct += (Math.max(a.netA, a.netB) / Math.min(a.netA, a.netB) - 1) * 100;
+    }
+
+    // B groups
+    if (!groupsB[a.grpB]) {
+      groupsB[a.grpB] = { count: 0, articles: [], sumSavingsKr: 0, sumMarkupPct: 0, avgMarkup: 0, totalCurrentPrice: 0 };
+    }
+    groupsB[a.grpB].count++;
+    groupsB[a.grpB].articles.push(a);
+    if (a.cheapest === idA && a.diffKr) {
+      groupsB[a.grpB].sumSavingsKr += a.diffKr;
+    }
+    if (a.netA > 0 && a.netB > 0) {
+      groupsB[a.grpB].sumMarkupPct += (Math.max(a.netA, a.netB) / Math.min(a.netA, a.netB) - 1) * 100;
+    }
+  });
+
+  // Average them out
+  for (const g in groupsA) {
+    groupsA[g].avgMarkup = groupsA[g].sumMarkupPct / groupsA[g].count;
+  }
+  for (const g in groupsB) {
+    groupsB[g].avgMarkup = groupsB[g].sumMarkupPct / groupsB[g].count;
+  }
+
+  const dynamicGroups = { [idA]: groupsA, [idB]: groupsB };
+
+  // Calculate generic recommendations based on new data
+  const recsA = buildDynamicRecs(groupsA, idA, idB);
+  const recsB = buildDynamicRecs(groupsB, idB, idA);
+  const dynamicRecommendations = { [idA]: recsA, [idB]: recsB };
+
+  return { dynamicGroups, dynamicRecommendations };
+}
+
+function buildDynamicRecs(groups, supplierId, competitorId) {
+  const recs = [];
+  for (const [grp, data] of Object.entries(groups)) {
+    if (data.sumSavingsKr <= 0) continue;
+
+    // Sum list prices of pieces where they are more expensive
+    let requiredAdditionalDiscountKr = 0;
+    let totalListScope = 0;
+    let currentDiscountSum = 0;
+    let discCount = 0;
+
+    data.articles.forEach(a => {
+      const isA = supplierId === currentResults.supplierIds[0];
+      const meList = isA ? a.listA : a.listB;
+      const meNet = isA ? a.netA : a.netB;
+      const meDisc = isA ? a.discA : a.discB;
+      const compNet = isA ? a.netB : a.netA;
+
+      if (meList > 0 && meNet > compNet) {
+        requiredAdditionalDiscountKr += (meNet - compNet);
+        totalListScope += meList;
+      }
+
+      // Keep track of average existing discount
+      if (meDisc !== null && !isNaN(meDisc)) {
+        currentDiscountSum += meDisc;
+        discCount++;
+      }
+    });
+
+    if (totalListScope > 0 && requiredAdditionalDiscountKr > 0) {
+      const avgCurrentDisc = discCount > 0 ? (currentDiscountSum / discCount) : 0;
+      // How much more % off list do we need to match competitor?
+      const additionalDiscPct = (requiredAdditionalDiscountKr / totalListScope) * 100;
+      const targetDiscount = avgCurrentDisc + additionalDiscPct;
+
+      recs.push({
+        group: grp,
+        articleCount: data.count,
+        currentDiscount: avgCurrentDisc,
+        targetDiscount: Math.min(targetDiscount, 99.9),
+        totalImpactKr: data.sumSavingsKr
+      });
+    }
+  }
+
+  return recs.sort((a, b) => b.totalImpactKr - a.totalImpactKr);
 }
 
 function renderFilteredSummary(articles) {

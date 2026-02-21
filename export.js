@@ -50,6 +50,7 @@ async function exportToExcel(results, SUPPLIERS) {
         [`Bara ${supB.name}`, results.excluded.onlyB],
         ['Saknar avtal', results.excluded.missingAgreement],
         ['Pris = 0', results.excluded.zeroPrice],
+        ['Markup > 5000%', results.excluded.highMarkup],
     ];
     const wsSummary = xlsx.utils.aoa_to_sheet(summaryData);
     wsSummary['!cols'] = [{ wch: 25 }, { wch: 15 }];
