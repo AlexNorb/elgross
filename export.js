@@ -116,7 +116,7 @@ async function exportToExcel(filteredData, SUPPLIERS) {
                 s: { c: 0, r: headerRowIndex },
                 e: { c: 5, r: headerRowIndex + recs.length }
             };
-            ws['!autofilter'] = range;
+            ws['!autofilter'] = { ref: xlsx.utils.encode_range(range) };
         }
 
         let sheetName = sup.name.substring(0, 31); // Max length in excel
