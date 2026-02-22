@@ -1,7 +1,7 @@
 // dashboard.js — Results dashboard rendering with virtual scrolling
 
 import { SUPPLIERS } from './suppliers.js';
-import { filterArticles, computeStats } from './engine.js';
+import { filterArticles, computeStats, computeCategoryStats } from './engine.js';
 
 let currentResults = null;
 let currentFiltered = null;
@@ -14,6 +14,7 @@ let minArticlesPerGroup = 0; // minimum articles per group threshold
 let favEnrSet = null;       // Set of favourite E-nummers (validated)
 let favFilterMode = null;   // null | 'direct' | 'groups'
 let favGroupsList = [];     // groups derived from fav E-nummers
+let latestDynamicRecommendations = null;
 
 // ── Screen Management ──────────────────────────────────────────────
 
@@ -87,22 +88,7 @@ function renderExecutiveSummary(results) {
     </div>
     <div class="stat-card">
       <div class="stat-value">${stats.avgMaxMarkup.toFixed(1)}%</div>
-      <div class="stat-label">Snitt markup</div>
-    </div>
-  `;
-  for (const id of supplierIds) {
-    const sup = SUPPLIERS[id];
-    statsHTML += `
-      <div class="stat-card">
-        <div class="stat-value" style="color:${sup.color}">${stats.wins[id].toLocaleString('sv-SE')}</div>
-        <div class="stat-label">${sup.name} billigare</div>
-      </div>
-    `;
-  }
-  statsHTML += `
-    <div class="stat-card">
-      <div class="stat-value text-muted">${stats.equal.toLocaleString('sv-SE')}</div>
-      <div class="stat-label">Samma pris</div>
+      <div class="stat-label">Snitt överpris</div>
     </div>
   `;
   statsRow.innerHTML = statsHTML;
@@ -117,7 +103,7 @@ function renderExecutiveSummary(results) {
   exclHTML += `
     <span class="excl-tag">Saknar avtal: ${excluded.missingAgreement}</span>
     <span class="excl-tag">Pris = 0: ${excluded.zeroPrice}</span>
-    <span class="excl-tag">Markup &gt; 999%: ${excluded.highMarkup}</span>
+    <span class="excl-tag">Överpris &gt; 999%: ${excluded.highMarkup}</span>
   `;
   exclEl.innerHTML = exclHTML;
 }
@@ -152,10 +138,20 @@ function renderSavingsBreakdown(results) {
     const card = document.createElement('div');
     card.className = 'savings-card';
     card.style.borderColor = sup.color;
+
+    const sStat = stats.supplierStats && stats.supplierStats[id] ? stats.supplierStats[id] : { avgMarkup: 0, medianMarkup: 0 };
+
     card.innerHTML = `
-      <div class="savings-header" style="background:${sup.color}">
-        <span class="savings-icon">${sup.icon}</span>
-        <span class="savings-name">${sup.name}</span>
+      <div class="savings-header" style="background:${sup.color}; display: flex; justify-content: space-between; align-items: center;">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <span class="savings-icon">${sup.icon}</span>
+          <span class="savings-name">${sup.name}</span>
+        </div>
+        <div style="text-align: right; font-size: 0.75rem; line-height: 1.2;">
+          <div style="text-transform: uppercase; letter-spacing: 0.05em; opacity: 0.8; font-size: 0.65rem; margin-bottom: 2px;">Överpris</div>
+          <div><span style="opacity:0.9;">Snitt:</span> ${sStat.avgMarkup.toFixed(1)}%</div>
+          <div><span style="opacity:0.9;">Median:</span> ${sStat.medianMarkup.toFixed(1)}%</div>
+        </div>
       </div>
       <div class="savings-body">
         <div class="savings-bar-wrap">
@@ -331,7 +327,6 @@ function renderNegotiation(dynamicRecommendations) {
 
   const supplierIds = currentResults.supplierIds;
 
-  // We want to skip minArticlesPerGroup if there's an active specific filter.
   const isTargetedSearch = (document.getElementById('f-enr-search')?.value.trim() !== '') ||
     (document.getElementById('f-group')?.value.trim() !== '') ||
     (favFilterMode !== null) ||
@@ -347,8 +342,7 @@ function renderNegotiation(dynamicRecommendations) {
 
     filteredRecs = filteredRecs.map(r => ({
       ...r,
-      diffPct: r.targetDiscount - r.currentDiscount,
-      impactScore: (r.losingCount || r.articleCount) * (r.targetDiscount - r.currentDiscount)
+      diffPct: r.targetDiscount - r.currentDiscount
     })).filter(r => r.diffPct >= 1);
 
     let negSortCol = 'diffPct';
@@ -377,14 +371,14 @@ function renderNegotiation(dynamicRecommendations) {
 
       const header = document.createElement('div');
       header.className = 'neg-header';
+      header.style.gridTemplateColumns = '2fr 1fr 1fr 1fr 1fr 1fr';
       const cols = [
         { key: 'group', label: 'Grupp' },
         { key: 'losingCount', label: 'Dyrare (totalt)' },
-        { key: 'avgMarkup', label: 'Snitt markup' },
+        { key: 'avgMarkup', label: 'Snitt överpris' },
         { key: 'currentDiscount', label: 'Nuv. rabatt' },
         { key: 'targetDiscount', label: 'Mål' },
-        { key: 'diffPct', label: 'Diff %' },
-        { key: 'impactScore', label: 'Påverkan' }
+        { key: 'diffPct', label: 'Diff %' }
       ];
       cols.forEach(({ key, label }) => {
         const span = document.createElement('span');
@@ -404,16 +398,10 @@ function renderNegotiation(dynamicRecommendations) {
       });
       table.appendChild(header);
 
-      // Fixed scale: 0–1000, anything above is clamped to max
-      const maxImpact = 1000;
-
       sorted.forEach(rec => {
         const row = document.createElement('div');
         row.className = 'neg-row';
-        // HSL: 120 = green, 0 = red. Scale impact 0..max → 120..0
-        const ratio = Math.min(rec.impactScore / maxImpact, 1);
-        const hue = Math.round(120 * (1 - ratio));
-        const barWidth = Math.max(ratio * 100, 4); // min 4% so it's visible
+        row.style.gridTemplateColumns = '2fr 1fr 1fr 1fr 1fr 1fr';
         row.innerHTML = `
           <span class="neg-group">${rec.group}</span>
           <span>${rec.losingCount || rec.articleCount} <small style="color:var(--text-muted)">(${rec.articleCount})</small></span>
@@ -421,9 +409,6 @@ function renderNegotiation(dynamicRecommendations) {
           <span>${rec.currentDiscount.toFixed(1)}%</span>
           <span class="text-green">${rec.targetDiscount.toFixed(1)}%</span>
           <span style="font-weight:600; color:var(--accent)">${rec.diffPct.toFixed(1)}%</span>
-          <span class="neg-impact-cell" title="${rec.impactScore.toFixed(0)}">
-            <span class="neg-impact-bar" style="width:${barWidth}%; background:hsl(${hue}, 70%, 45%);"></span>
-          </span>
         `;
         table.appendChild(row);
       });
@@ -638,6 +623,7 @@ function applyFilters() {
 
   // Update filtered summary
   renderFilteredSummary(filtered);
+  renderCategoryAnalysis(filtered);
 
   // Render virtual table
   renderVirtualTable(filtered);
@@ -645,6 +631,7 @@ function applyFilters() {
   // Re-calculate aggregations based purely on the filtered list
   const supplierIds = currentResults.supplierIds;
   const dynamicRecommendations = recalculateDynamicGroups(filtered, supplierIds);
+  latestDynamicRecommendations = dynamicRecommendations;
 
   // Read min-articles threshold
   const minVal = parseInt(document.getElementById('f-min-articles')?.value, 10);
@@ -774,11 +761,11 @@ function renderFilteredSummary(articles) {
         <span class="fs-value">${stats.count.toLocaleString('sv-SE')}</span>
       </div>
       <div class="fs-stat">
-        <span class="fs-label">Snitt markup</span>
+        <span class="fs-label">Snitt överpris</span>
         <span class="fs-value">${stats.avgMaxMarkup.toFixed(1)}%</span>
       </div>
       <div class="fs-stat">
-        <span class="fs-label">Median markup</span>
+        <span class="fs-label">Median överpris</span>
         <span class="fs-value">${stats.medianMaxMarkup.toFixed(1)}%</span>
       </div>
   `;
@@ -793,6 +780,77 @@ function renderFilteredSummary(articles) {
   }
   html += '</div>';
   el.innerHTML = html;
+}
+
+function renderCategoryAnalysis(articles) {
+  const container = document.getElementById('category-analysis-content');
+  if (!container) return;
+
+  const supplierIds = currentResults.supplierIds;
+  const categoryStats = computeCategoryStats(articles, supplierIds);
+  const supStats = computeStats(articles, supplierIds).supplierStats;
+
+  let html = '<div class="category-cards">';
+
+  for (const id of supplierIds) {
+    const sup = SUPPLIERS[id];
+    const data = categoryStats[id];
+    const sStat = supStats && supStats[id] ? supStats[id] : { avgMarkup: 0, medianMarkup: 0 };
+
+    html += `
+      <div class="category-card" style="border-top: 3px solid ${sup.color}">
+        <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom: 16px;">
+          <h4 style="display:flex; align-items:center; gap:8px; margin:0;">
+            <span style="background:${sup.color}; color:white; padding:4px; border-radius:4px; font-size:12px;">${sup.icon}</span> 
+            ${sup.name}
+          </h4>
+          <div style="text-align:right; font-size:0.8rem; color:var(--text-muted); line-height:1.4;">
+            <div>Snitt: <span style="color:var(--text-primary); font-weight:600;">${sStat.avgMarkup.toFixed(1)}%</span></div>
+            <div>Median: <span style="color:var(--text-primary); font-weight:600;">${sStat.medianMarkup.toFixed(1)}%</span></div>
+          </div>
+        </div>
+        
+        <div style="margin-bottom: 20px;">
+          <h5 style="color:var(--text-muted); font-size:0.8rem; text-transform:uppercase; margin-bottom:8px;">Lägre överpris (Bra priser)</h5>
+          ${data.sortedAsc.length > 0 ? `
+            <div class="cat-table-container">
+              <table class="cat-table">
+                <tr><th>Kategori</th><th>Snitt Överpris</th><th>Artiklar</th></tr>
+                ${data.sortedAsc.map(c => `
+                  <tr>
+                    <td>Kategori ${c.category}</td>
+                    <td class="text-green">${c.avgMarkup.toFixed(1)}%</td>
+                    <td>${c.count}</td>
+                  </tr>
+                `).join('')}
+              </table>
+            </div>
+          ` : '<p class="text-muted" style="font-size:0.85rem">Ingen data</p>'}
+        </div>
+        
+        <div>
+          <h5 style="color:var(--text-muted); font-size:0.8rem; text-transform:uppercase; margin-bottom:8px;">Höga överpris (Bör förhandlas)</h5>
+          ${data.sortedDesc.length > 0 ? `
+            <div class="cat-table-container">
+              <table class="cat-table">
+                <tr><th>Kategori</th><th>Snitt Överpris</th><th>Artiklar</th></tr>
+                ${data.sortedDesc.map(c => `
+                  <tr>
+                    <td>Kategori ${c.category}</td>
+                    <td class="text-red">${c.avgMarkup.toFixed(1)}%</td>
+                    <td>${c.count}</td>
+                  </tr>
+                `).join('')}
+              </table>
+            </div>
+          ` : '<p class="text-muted" style="font-size:0.85rem">Ingen data</p>'}
+        </div>
+      </div>
+    `;
+  }
+
+  html += '</div>';
+  container.innerHTML = html;
 }
 
 const MAX_TABLE_ROWS = 500;
@@ -1191,8 +1249,12 @@ function formatKr(value) {
   return Math.round(value).toLocaleString('sv-SE') + ' kr';
 }
 
-function getResults() {
-  return currentResults;
+function getFilteredData() {
+  return {
+    filtered: currentFiltered,
+    supplierIds: currentResults ? currentResults.supplierIds : [],
+    dynamicRecommendations: latestDynamicRecommendations
+  };
 }
 
-export { renderDashboard, showScreen, applyFilters, getResults };
+export { renderDashboard, showScreen, applyFilters, getFilteredData };

@@ -177,19 +177,14 @@ function compareSuppliers(supplierData) {
     // Sort by max markup descending
     matched.sort((a, b) => b.maxMarkup - a.maxMarkup);
 
-    const totalMatched = matched.length;
-    const avgMaxMarkup = totalMatched > 0 ? sumMaxMarkup / totalMatched : 0;
+    const cStats = computeStats(matched, supplierIds);
+    cStats.totalMatched = cStats.count; // alias for backwards compatibility
 
     return {
         matched,
         supplierIds,
         supplierData,
-        stats: {
-            totalMatched,
-            wins,
-            equal: equalCount,
-            avgMaxMarkup
-        },
+        stats: cStats,
         excluded: {
             unitMismatch,
             onlyCounts,
@@ -241,8 +236,19 @@ function computeStats(articles, supplierIds) {
     const wins = {};
     supplierIds.forEach(id => wins[id] = 0);
 
+    const supplierStats = {};
+    supplierIds.forEach(id => {
+        supplierStats[id] = { sumMarkup: 0, markups: [] };
+    });
+
     if (articles.length === 0) {
-        return { count: 0, avgMaxMarkup: 0, medianMaxMarkup: 0, wins, equal: 0 };
+        supplierIds.forEach(id => {
+            supplierStats[id].avgMarkup = 0;
+            supplierStats[id].medianMarkup = 0;
+            delete supplierStats[id].sumMarkup;
+            delete supplierStats[id].markups;
+        });
+        return { count: 0, avgMaxMarkup: 0, medianMaxMarkup: 0, wins, equal: 0, supplierStats };
     }
 
     let sumMarkup = 0, equalCount = 0;
@@ -256,6 +262,14 @@ function computeStats(articles, supplierIds) {
         } else if (wins[a.cheapest] !== undefined) {
             wins[a.cheapest]++;
         }
+
+        supplierIds.forEach(id => {
+            if (a.suppliers && a.suppliers[id]) {
+                const mu = a.suppliers[id].markup;
+                supplierStats[id].sumMarkup += mu;
+                supplierStats[id].markups.push(mu);
+            }
+        });
     });
 
     markups.sort((a, b) => a - b);
@@ -264,13 +278,59 @@ function computeStats(articles, supplierIds) {
         ? (markups[mid - 1] + markups[mid]) / 2
         : markups[mid];
 
+    supplierIds.forEach(id => {
+        const arr = supplierStats[id].markups;
+        arr.sort((a, b) => a - b);
+        let sMed = 0;
+        if (arr.length > 0) {
+            const smid = Math.floor(arr.length / 2);
+            sMed = arr.length % 2 === 0 ? (arr[smid - 1] + arr[smid]) / 2 : arr[smid];
+        }
+        supplierStats[id].avgMarkup = arr.length > 0 ? supplierStats[id].sumMarkup / arr.length : 0;
+        supplierStats[id].medianMarkup = sMed;
+        delete supplierStats[id].sumMarkup;
+        delete supplierStats[id].markups;
+    });
+
     return {
         count: articles.length,
         avgMaxMarkup: sumMarkup / articles.length,
         medianMaxMarkup: median,
         wins,
-        equal: equalCount
+        equal: equalCount,
+        supplierStats
     };
 }
 
-export { loadGNP, parseAgreement, computeNetPrices, compareSuppliers, filterArticles, computeStats };
+/**
+ * Compute average markup per category (first 2 digits of E-nummer) per supplier
+ * Returns { supplierId: { top5: [], bottom5: [] } }
+ */
+function computeCategoryStats(articles, supplierIds) {
+    const stats = {};
+    supplierIds.forEach(id => {
+        const catMap = {};
+        articles.forEach(a => {
+            const s = a.suppliers[id];
+            if (!s) return;
+            const cat = a.enr.substring(0, 2);
+            if (!catMap[cat]) catMap[cat] = { sumMarkup: 0, count: 0 };
+            catMap[cat].sumMarkup += s.markup;
+            catMap[cat].count++;
+        });
+
+        const arr = [];
+        for (const [cat, data] of Object.entries(catMap)) {
+            arr.push({ category: cat, avgMarkup: data.sumMarkup / data.count, count: data.count });
+        }
+        arr.sort((a, b) => a.avgMarkup - b.avgMarkup);
+
+        stats[id] = {
+            sortedAsc: [...arr],
+            sortedDesc: [...arr].reverse()
+        };
+    });
+    return stats;
+}
+
+export { loadGNP, parseAgreement, computeNetPrices, compareSuppliers, filterArticles, computeStats, computeCategoryStats };
