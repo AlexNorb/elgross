@@ -1,6 +1,6 @@
 (async function() {
     
-    const correctHash = "93f725a07423fe1c7e49e2454a681608134d7488509836374242e2b512a25424";
+    const correctHash = "dfc01ba208a95932f04896c153ccadec47df0d03314625ec691f707eede8d02b";
     const storageKey = "access";
 
     // 2. Dölj hela sidan omedelbart så inget syns
