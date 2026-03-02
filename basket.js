@@ -115,11 +115,22 @@ function initBasket() {
             addInput.value = '';
             addQtyInput.value = '1';
             renderBasket();
+            addInput.focus(); // Return focus to E-nummer input
         }
     });
 
     addInput.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') addBtn.click();
+        if (e.key === 'Enter') {
+            e.preventDefault(); // Prevent accidental form submissions if any
+            addBtn.click();
+        }
+    });
+
+    addQtyInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            addBtn.click();
+        }
     });
 }
 
@@ -159,19 +170,18 @@ function renderBasket() {
 
     const { supplierData, supplierIds } = results;
 
-    // Build table
+    // Build table — 5 columns: delete, E-nummer, Antal, Bäst pris, Leverantör
     let html = `
         <div class="bk-table-wrap">
             <table class="bk-table">
-                <thead>
-                    <tr>
-                        <th>E-nummer</th>
-                        <th>Antal</th>`;
-
-    for (const id of supplierIds) {
-        html += `<th style="color:${SUPPLIERS[id].color}">${SUPPLIERS[id].icon} ${SUPPLIERS[id].name}</th>`;
-    }
-    html += `<th>Bäst pris</th><th></th></tr></thead><tbody>`;
+                <thead><tr>
+                    <th class="bk-col-del"></th>
+                    <th>E-nummer</th>
+                    <th>Antal</th>
+                    <th>Bäst pris</th>
+                    <th class="bk-col-sup"></th>
+                </tr></thead>
+                <tbody>`;
 
     // Totals tracking
     const supplierTotals = {};
@@ -198,41 +208,37 @@ function renderBasket() {
             }
         }
 
+        // Accumulate supplier totals for summary cards
+        for (const id of supplierIds) {
+            if (prices[id] != null) supplierTotals[id] += prices[id] * qty;
+        }
+
         const found = Object.keys(prices).length > 0;
         if (!found) notFoundCount++;
 
-        html += `<tr class="${!found ? 'bk-row-missing' : ''}">`;
-        html += `<td class="bk-enr">${enr}</td>`;
-        html += `<td>
-            <div class="bk-qty-controls">
-                <button class="bk-qty-btn" data-enr="${enr}" data-delta="-1">−</button>
-                <span class="bk-qty-value">${qty}</span>
-                <button class="bk-qty-btn" data-enr="${enr}" data-delta="1">+</button>
-            </div>
-        </td>`;
+        // Best supplier badge
+        const bestSup = bestId ? SUPPLIERS[bestId] : null;
+        const supBadge = bestSup
+            ? `<span class="bk-sup-badge" style="background:${bestSup.color}">${bestSup.icon}</span>`
+            : '—';
 
-        for (const id of supplierIds) {
-            if (prices[id] != null) {
-                const total = prices[id] * qty;
-                supplierTotals[id] += total;
-                const isBest = id === bestId;
-                html += `<td class="${isBest ? 'bk-cell-best' : ''}">${total.toFixed(2)} kr</td>`;
-            } else {
-                html += `<td class="text-muted">—</td>`;
-            }
-        }
+        html += `<tr class="${!found ? 'bk-row-missing' : ''}">` +
+            `<td class="bk-col-del"><button class="bk-remove-btn" data-enr="${enr}" title="Ta bort">✕</button></td>` +
+            `<td class="bk-enr">${enr}</td>` +
+            `<td><div class="bk-qty-controls">` +
+            `<button class="bk-qty-btn" data-enr="${enr}" data-delta="-1">−</button>` +
+            `<span class="bk-qty-value">${qty}</span>` +
+            `<button class="bk-qty-btn" data-enr="${enr}" data-delta="1">+</button>` +
+            `</div></td>`;
 
-        // Best price column
         if (bestNet < Infinity) {
             mixTotal += bestNet * qty;
-            html += `<td class="bk-cell-mix">${(bestNet * qty).toFixed(2)} kr</td>`;
+            html += `<td class="bk-cell-mix">${(bestNet * qty).toFixed(1)} kr</td>`;
         } else {
             html += `<td class="text-muted">—</td>`;
         }
 
-        // Remove button
-        html += `<td><button class="bk-remove-btn" data-enr="${enr}" title="Ta bort">✕</button></td>`;
-        html += `</tr>`;
+        html += `<td class="bk-col-sup">${supBadge}</td></tr>`;
     }
 
     html += `</tbody></table></div>`;
@@ -279,7 +285,31 @@ function renderTotals(data) {
 
     const { supplierTotals, mixTotal, supplierIds } = data;
 
-    let html = '<div class="bk-totals-grid">';
+    // Calculate savings
+    const worstTotal = Math.max(...Object.values(supplierTotals));
+    let savingsHtml = '<span class="bk-total-diff text-green">Billigast möjliga</span>';
+
+    if (worstTotal > mixTotal && mixTotal > 0) {
+        const savingsKr = worstTotal - mixTotal;
+        const savingsPct = (savingsKr / worstTotal * 100);
+        savingsHtml = `<span class="bk-total-diff text-green">Spara ${savingsKr.toFixed(0)} kr (${savingsPct.toFixed(1)}%)</span>`;
+    }
+
+    // Mix total (best price) - FULL ROW ON TOP
+    let html = `
+        <div class="bk-total-mix-fullrow">
+            <div class="bk-total-card bk-total-mix">
+                <div class="bk-total-header bk-mix-header">
+                    <span>🏆 Mix (Bästa pris)</span>
+                </div>
+                <div class="bk-total-body" style="align-items: center; flex-direction: row; justify-content: space-between;">
+                    <span class="bk-total-amount bk-mix-amount">${mixTotal.toFixed(0)} kr</span>
+                    ${savingsHtml}
+                </div>
+            </div>
+        </div>
+        <div class="bk-totals-grid">
+    `;
 
     // Per-supplier totals
     for (const id of supplierIds) {
@@ -294,34 +324,9 @@ function renderTotals(data) {
                     <span>${sup.icon} ${sup.name}</span>
                 </div>
                 <div class="bk-total-body">
-                    <span class="bk-total-amount">${total.toFixed(2)} kr</span>
-                    ${diff > 0.01 ? `<span class="bk-total-diff text-red">+${diff.toFixed(2)} kr (+${pctMore.toFixed(1)}%)</span>` : ''}
+                    <span class="bk-total-amount">${total.toFixed(0)} kr</span>
+                    ${diff > 0.01 ? `<span class="bk-total-diff text-red">+${diff.toFixed(0)} kr (+${pctMore.toFixed(1)}%)</span>` : ''}
                 </div>
-            </div>
-        `;
-    }
-
-    // Mix total (best price)
-    html += `
-        <div class="bk-total-card bk-total-mix">
-            <div class="bk-total-header bk-mix-header">
-                <span>🏆 Mix (Bästa pris)</span>
-            </div>
-            <div class="bk-total-body">
-                <span class="bk-total-amount bk-mix-amount">${mixTotal.toFixed(2)} kr</span>
-                <span class="bk-total-diff text-green">Billigast möjliga</span>
-            </div>
-        </div>
-    `;
-
-    // Savings summary
-    const worstTotal = Math.max(...Object.values(supplierTotals));
-    if (worstTotal > mixTotal && mixTotal > 0) {
-        const savingsKr = worstTotal - mixTotal;
-        const savingsPct = (savingsKr / worstTotal * 100);
-        html += `
-            <div class="bk-savings-banner">
-                <span>💰 Du kan spara upp till <strong>${savingsKr.toFixed(2)} kr</strong> (${savingsPct.toFixed(1)}%) genom att köpa bäst pris per artikel</span>
             </div>
         `;
     }

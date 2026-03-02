@@ -116,18 +116,11 @@ function renderResult(enr, rows, bestId, bestNet, supplierIds) {
     }
 
     let html = `
-    <div class="qs-result-header">
-      <span class="qs-enr-badge">${enr}</span>
-      <span class="qs-result-count">${rows.length} leverantör${rows.length > 1 ? 'er' : ''}</span>
-    </div>
     <div class="qs-table-wrap">
       <table class="qs-table">
         <thead>
           <tr>
             <th>Leverantör</th>
-            <th>Rabattgrupp</th>
-            <th>Listpris</th>
-            <th>Rabatt %</th>
             <th>Nettopris</th>
             <th>Överpris</th>
           </tr>
@@ -155,9 +148,6 @@ function renderResult(enr, rows, bestId, bestNet, supplierIds) {
           <span class="qs-sup-badge" style="background:${sup.color}">${sup.icon}</span>
           ${sup.name}
         </td>
-        <td>${row.grp || '—'}</td>
-        <td>${row.list ? row.list.toFixed(2) + ' kr' : '—'}</td>
-        <td>${row.disc != null ? row.disc.toFixed(1) + '%' : '—'}</td>
         <td class="${isBest ? 'qs-net-best' : ''}">${row.net ? row.net.toFixed(2) + ' kr' : '—'}</td>
         <td class="${markupClass}">${markupText}</td>
       </tr>

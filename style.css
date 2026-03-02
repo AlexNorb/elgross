@@ -1862,6 +1862,33 @@ body {
     border-color: var(--accent);
 }
 
+/* Specific navigation buttons with color */
+#qs-back-btn {
+    background: rgba(167, 139, 250, 0.15);
+    /* Purple tint for Analysis */
+    color: var(--purple);
+    border-color: rgba(167, 139, 250, 0.3);
+    font-weight: 600;
+}
+
+#qs-back-btn:hover {
+    background: rgba(167, 139, 250, 0.25);
+    border-color: var(--purple);
+}
+
+#bk-back-btn {
+    background: var(--accent-light);
+    /* Blue tint for Search */
+    color: var(--accent);
+    border-color: rgba(99, 155, 255, 0.3);
+    font-weight: 600;
+}
+
+#bk-back-btn:hover {
+    background: rgba(99, 155, 255, 0.25);
+    border-color: var(--accent);
+}
+
 /* ═══════════════════════════════════════════════════════════
    SCREEN 4: QUICK SEARCH
    ═══════════════════════════════════════════════════════════ */
@@ -2520,6 +2547,32 @@ body {
     font-weight: 800;
 }
 
+.bk-col-del {
+    width: 32px;
+    text-align: center;
+    padding: 0 4px !important;
+}
+
+.bk-col-sup {
+    width: 32px;
+    text-align: center;
+    padding: 0 4px !important;
+}
+
+.bk-sup-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    border-radius: 5px;
+    color: white;
+    font-weight: 800;
+    font-size: 0.65rem;
+    vertical-align: middle;
+    margin-right: 4px;
+}
+
 /* Quantity Controls */
 .bk-qty-controls {
     display: inline-flex;
@@ -2531,7 +2584,7 @@ body {
 }
 
 .bk-qty-btn {
-    padding: 4px 10px;
+    padding: 2px 6px;
     background: transparent;
     border: none;
     color: var(--text-secondary);
@@ -2556,12 +2609,12 @@ body {
 }
 
 .bk-remove-btn {
-    background: none;
-    border: none;
-    color: var(--text-muted);
+    background: rgba(239, 68, 68, 0.06);
+    border: 1px solid rgba(239, 68, 68, 0.2);
+    color: var(--red);
     cursor: pointer;
     font-size: 0.85rem;
-    padding: 4px 8px;
+    padding: 2px 6px;
     border-radius: var(--radius-sm);
     transition: var(--transition);
 }
@@ -2613,6 +2666,11 @@ body {
     gap: 12px;
 }
 
+.bk-total-mix-fullrow {
+    margin-bottom: 12px;
+    grid-column: 1 / -1;
+}
+
 .bk-total-card {
     background: var(--bg-card);
     border: 1px solid var(--border);
@@ -2657,23 +2715,6 @@ body {
 
 .bk-mix-amount {
     color: var(--green) !important;
-}
-
-/* Savings banner */
-.bk-savings-banner {
-    grid-column: 1 / -1;
-    background: linear-gradient(135deg, rgba(52, 211, 153, 0.08), rgba(99, 155, 255, 0.06));
-    border: 1px solid rgba(52, 211, 153, 0.2);
-    border-radius: var(--radius-md);
-    padding: 16px 20px;
-    text-align: center;
-    color: var(--text-secondary);
-    font-size: 0.9rem;
-}
-
-.bk-savings-banner strong {
-    color: var(--green);
-    font-weight: 800;
 }
 
 /* Responsive Basket */
