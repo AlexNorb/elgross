@@ -8,6 +8,57 @@ import { renderDashboard, showScreen } from './dashboard.js';
 const uploadedFiles = {}; // supplierId → { name, content }
 let isProcessing = false;
 
+const LS_KEY = 'prisjamfor_avtal'; // localStorage key for persisted files
+
+// ── LocalStorage helpers ──────────────────────────────────────────
+
+function saveToLocalStorage() {
+    try {
+        const data = {};
+        for (const [id, file] of Object.entries(uploadedFiles)) {
+            data[id] = {
+                name: file.name,
+                content: file.content,
+                date: file.date || new Date().toISOString()
+            };
+        }
+        localStorage.setItem(LS_KEY, JSON.stringify(data));
+    } catch (e) {
+        console.warn('Could not save agreements to localStorage:', e.message);
+    }
+}
+
+function loadFromLocalStorage() {
+    try {
+        const raw = localStorage.getItem(LS_KEY);
+        if (!raw) return;
+        const data = JSON.parse(raw);
+        for (const [id, file] of Object.entries(data)) {
+            if (SUPPLIERS[id] && file.content && file.name) {
+                uploadedFiles[id] = {
+                    name: file.name,
+                    content: file.content,
+                    date: file.date || null
+                };
+            }
+        }
+    } catch (e) {
+        console.warn('Could not load agreements from localStorage:', e.message);
+    }
+}
+
+function removeFromLocalStorage(supplierId) {
+    try {
+        const raw = localStorage.getItem(LS_KEY);
+        if (!raw) return;
+        const data = JSON.parse(raw);
+        delete data[supplierId];
+        localStorage.setItem(LS_KEY, JSON.stringify(data));
+    } catch (e) {
+        console.warn('Could not update localStorage:', e.message);
+    }
+}
+
 /**
  * Initialize the upload screen.
  */
@@ -16,6 +67,9 @@ function initUpload() {
     const fileInput = document.getElementById('file-input');
     const browseBtn = document.getElementById('browse-btn');
     const analyzeBtn = document.getElementById('analyze-btn');
+
+    // Restore previously saved files from localStorage
+    loadFromLocalStorage();
 
     // Drag & drop events
     ['dragenter', 'dragover'].forEach(evt => {
@@ -66,10 +120,16 @@ async function handleFiles(fileList) {
             continue;
         }
 
-
-        uploadedFiles[supplierId] = { name: file.name, content };
+        uploadedFiles[supplierId] = {
+            name: file.name,
+            content,
+            date: new Date().toISOString()
+        };
         showUploadSuccess(supplierId, file.name);
     }
+
+    // Persist to localStorage
+    saveToLocalStorage();
 
     updateSupplierChips();
     updateAnalyzeButton();
@@ -120,7 +180,14 @@ function updateSupplierChips() {
         status.className = 'chip-status';
 
         if (uploadedFiles[id]) {
-            status.textContent = uploadedFiles[id].name;
+            const file = uploadedFiles[id];
+            // Show filename + date if available
+            let statusText = file.name;
+            if (file.date) {
+                const d = new Date(file.date);
+                statusText += ` (${d.toLocaleDateString('sv-SE')})`;
+            }
+            status.textContent = statusText;
             // Add remove button
             const removeBtn = document.createElement('button');
             removeBtn.className = 'chip-remove';
@@ -129,6 +196,7 @@ function updateSupplierChips() {
             removeBtn.addEventListener('click', (e) => {
                 e.stopPropagation();
                 delete uploadedFiles[id];
+                removeFromLocalStorage(id);
                 updateSupplierChips();
                 updateAnalyzeButton();
             });
@@ -216,9 +284,11 @@ async function startAnalysis() {
         updateProgress(totalSteps, totalSteps, 'Förbereder rapport...');
         await new Promise(r => setTimeout(r, 600));
 
-        // Switch to results
-        showScreen('results');
+        // Prepare dashboard and switch to Quick Search
         renderDashboard(results);
+        import('./quicksearch.js').then(({ showQuickSearch }) => {
+            showQuickSearch();
+        });
 
     } catch (err) {
         console.error(err);

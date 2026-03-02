@@ -1257,4 +1257,13 @@ function getFilteredData() {
   };
 }
 
-export { renderDashboard, showScreen, applyFilters, getFilteredData };
+function getResultsData() {
+  if (!currentResults) return null;
+  return {
+    supplierData: currentResults.supplierData,
+    supplierIds: currentResults.supplierIds,
+    matched: currentResults.matched
+  };
+}
+
+export { renderDashboard, showScreen, applyFilters, getFilteredData, getResultsData };
