@@ -865,6 +865,25 @@ function renderVirtualTable(articles) {
   if (!tableBody) return;
 
   const supplierIds = currentResults.supplierIds;
+  const totalCols = 1 + supplierIds.length * 2;
+
+  // Empty state — friendly message when no articles match
+  if (articles.length === 0) {
+    tableBody.innerHTML = `
+      <tr>
+        <td colspan="${totalCols}" class="table-empty-state">
+          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <circle cx="11" cy="11" r="8"></circle>
+            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+          </svg>
+          <p>Inga artiklar matchar dina filter</p>
+          <p class="table-empty-hint">Prova att ändra eller nollställa filtren</p>
+        </td>
+      </tr>
+    `;
+    return;
+  }
+
   const capped = articles.slice(0, MAX_TABLE_ROWS);
 
   if (scrollContainer) {
@@ -901,7 +920,6 @@ function renderVirtualTable(articles) {
   tableBody.appendChild(fragment);
 
   // Show a note if capped
-  const totalCols = 1 + supplierIds.length * 2;
   if (articles.length > MAX_TABLE_ROWS) {
     const note = document.createElement('tr');
     note.innerHTML = `<td colspan="${totalCols}" style="text-align:center; color:var(--text-secondary); padding:0.75rem;">Visar ${MAX_TABLE_ROWS} av ${articles.length.toLocaleString('sv-SE')} artiklar. Filtrera för att se fler.</td>`;
