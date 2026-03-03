@@ -183,16 +183,48 @@ function renderBasket() {
                 </tr></thead>
                 <tbody>`;
 
-    // Totals tracking
+    // 1. Calculate totals per supplier first so we know who is the overall cheapest
     const supplierTotals = {};
     supplierIds.forEach(id => supplierTotals[id] = 0);
+
+    for (const [enr, item] of basketItems) {
+        const qty = item.qty;
+        for (const id of supplierIds) {
+            const data = supplierData[id];
+            if (data && data.has(enr)) {
+                supplierTotals[id] += data.get(enr).net * qty;
+            }
+        }
+    }
+
+    // Find the cheapest single supplier
+    let bestSingleTotal = Infinity;
+    let bestSingleId = null;
+    let bestSingleTotalsIds = [];
+    for (const id of supplierIds) {
+        const supTotalRound = Math.round(supplierTotals[id]);
+        if (supTotalRound > 0) {
+            if (supTotalRound < bestSingleTotal) {
+                bestSingleTotal = supTotalRound;
+                bestSingleId = id;
+                bestSingleTotalsIds = [id];
+            } else if (supTotalRound === bestSingleTotal) {
+                bestSingleTotalsIds.push(id);
+            }
+        }
+    }
+
+    // 2. Mix distribution and table rendering
+    const mixDistribution = {};
+    supplierIds.forEach(id => mixDistribution[id] = { count: 0, kr: 0, items: [] });
+
     let mixTotal = 0;
     let notFoundCount = 0;
 
     for (const [enr, item] of basketItems) {
         const qty = item.qty;
         let bestNet = Infinity;
-        let bestId = null;
+        let bestIds = [];
         const prices = {};
 
         // Look up price from each supplier
@@ -201,26 +233,35 @@ function renderBasket() {
             if (data && data.has(enr)) {
                 const article = data.get(enr);
                 prices[id] = article.net;
-                if (article.net > 0 && article.net < bestNet) {
-                    bestNet = article.net;
-                    bestId = id;
+                if (article.net > 0) {
+                    // Compare based on row total, rounded to nearest integer
+                    const rowTotal = Math.round(article.net * qty);
+                    const bestRowTotal = Math.round(bestNet * qty);
+
+                    if (rowTotal < bestRowTotal) {
+                        bestNet = article.net;
+                        bestIds = [id];
+                    } else if (rowTotal === bestRowTotal) {
+                        // Only add to ties if it's not the first one being set 
+                        if (bestNet !== Infinity && !bestIds.includes(id)) {
+                            bestIds.push(id);
+                        }
+                    }
                 }
             }
-        }
-
-        // Accumulate supplier totals for summary cards
-        for (const id of supplierIds) {
-            if (prices[id] != null) supplierTotals[id] += prices[id] * qty;
         }
 
         const found = Object.keys(prices).length > 0;
         if (!found) notFoundCount++;
 
-        // Best supplier badge
-        const bestSup = bestId ? SUPPLIERS[bestId] : null;
-        const supBadge = bestSup
-            ? `<span class="bk-sup-badge" style="background:${bestSup.color}">${bestSup.icon}</span>`
-            : '—';
+        // Best supplier badge(s)
+        let supBadge = '—';
+        if (bestIds.length > 0) {
+            supBadge = bestIds.map(id => {
+                const bSup = SUPPLIERS[id];
+                return `<span class="bk-sup-badge" style="background:${bSup.color}" title="${bSup.name}">${bSup.icon}</span>`;
+            }).join('');
+        }
 
         html += `<tr class="${!found ? 'bk-row-missing' : ''}">` +
             `<td class="bk-col-del"><button class="bk-remove-btn" data-enr="${enr}" title="Ta bort">✕</button></td>` +
@@ -233,7 +274,16 @@ function renderBasket() {
 
         if (bestNet < Infinity) {
             mixTotal += bestNet * qty;
-            html += `<td class="bk-cell-mix">${(bestNet * qty).toFixed(1)} kr</td>`;
+            html += `<td class="bk-cell-mix">${Math.round(bestNet * qty)} kr</td>`;
+            if (bestIds.length > 0) {
+                // If there's a tie, assign to the supplier that is cheapest overall (bestSingleId), 
+                // otherwise fallback to the first id in bestIds.
+                let primaryId = bestIds.includes(bestSingleId) ? bestSingleId : bestIds[0];
+
+                mixDistribution[primaryId].count += qty;
+                mixDistribution[primaryId].kr += bestNet * qty;
+                mixDistribution[primaryId].items.push({ enr, qty });
+            }
         } else {
             html += `<td class="text-muted">—</td>`;
         }
@@ -271,7 +321,7 @@ function renderBasket() {
     });
 
     // Render totals
-    renderTotals({ supplierTotals, mixTotal, supplierIds });
+    renderTotals({ supplierTotals, mixTotal: Math.round(mixTotal), supplierIds, mixDistribution, bestSingleTotal, bestSingleId, bestSingleTotalsIds });
 }
 
 function renderTotals(data) {
@@ -283,56 +333,170 @@ function renderTotals(data) {
         return;
     }
 
-    const { supplierTotals, mixTotal, supplierIds } = data;
+    const { supplierTotals, mixTotal, supplierIds, mixDistribution, bestSingleTotal, bestSingleId, bestSingleTotalsIds } = data;
 
-    // Calculate savings
-    const worstTotal = Math.max(...Object.values(supplierTotals));
-    let savingsHtml = '<span class="bk-total-diff text-green">Billigast möjliga</span>';
+    // Calculate savings against cheapest single supplier
+    let savingsHtml = '';
+    let savingsKr = 0;
+    let savingsPct = 0;
 
-    if (worstTotal > mixTotal && mixTotal > 0) {
-        const savingsKr = worstTotal - mixTotal;
-        const savingsPct = (savingsKr / worstTotal * 100);
-        savingsHtml = `<span class="bk-total-diff text-green">Spara ${savingsKr.toFixed(0)} kr (${savingsPct.toFixed(1)}%)</span>`;
+    if (bestSingleTotal > mixTotal && mixTotal > 0) {
+        savingsKr = Math.round(bestSingleTotal - mixTotal);
+        savingsPct = (savingsKr / bestSingleTotal * 100);
+        savingsHtml = `<span class="bk-total-diff text-green" style="font-weight: 600;">Spara ${savingsKr.toFixed(0)} kr (${savingsPct.toFixed(1)}%) mot billigaste helhetsleverantören</span>`;
+    } else {
+        savingsHtml = '<span class="bk-total-diff text-muted">Ingen extra besparing mot billigaste.</span>';
     }
 
-    // Mix total (best price) - FULL ROW ON TOP
-    let html = `
-        <div class="bk-total-mix-fullrow">
-            <div class="bk-total-card bk-total-mix">
-                <div class="bk-total-header bk-mix-header">
-                    <span>🏆 Mix (Bästa pris)</span>
+    // Determine recommendation for sorting
+    let recommendMix = false;
+    if (mixTotal > 0) {
+        if (savingsPct >= 2.0 || !bestSingleTotalsIds || bestSingleTotalsIds.length === 0) {
+            recommendMix = true;
+        }
+    }
+
+    // Build Mix Distribution List
+    let mixDistHtml = '<div class="bk-mix-distribution">';
+    for (const id of supplierIds) {
+        if (mixDistribution[id].count > 0) {
+            const sup = SUPPLIERS[id];
+            mixDistHtml += `
+                <div class="bk-mix-dist-row">
+                    <div class="bk-mix-dist-left">
+                        <span class="bk-mix-dist-dot" style="background: ${sup.color}"></span>
+                        <span class="bk-mix-dist-name">${sup.name}</span>
+                        <span class="bk-mix-dist-count">(${mixDistribution[id].count} st)</span>
+                    </div>
+                    <div class="bk-mix-dist-kr">${mixDistribution[id].kr.toFixed(0)} kr</div>
                 </div>
-                <div class="bk-total-body" style="align-items: center; flex-direction: row; justify-content: space-between;">
-                    <span class="bk-total-amount bk-mix-amount">${mixTotal.toFixed(0)} kr</span>
-                    ${savingsHtml}
-                </div>
+            `;
+        }
+    }
+    mixDistHtml += '</div>';
+
+    let html = '';
+
+    // Build Mix HTML
+    let mixCardHtml = `
+        <div class="bk-total-card bk-total-mix">
+            <div class="bk-total-header bk-mix-header">
+                <span>🏆 Mix (Bästa möjliga pris)</span>
+            </div>
+            <div class="bk-total-body" style="align-items: center; justify-content: space-between;">
+                <span class="bk-total-amount bk-mix-amount">${mixTotal.toFixed(0)} kr</span>
+                ${savingsHtml}
+            </div>
+            <div class="bk-total-footer" style="padding: 12px 16px; border-top: 1px solid var(--border); background: var(--bg-primary);">
+                <div style="font-size: 0.8rem; font-weight: 600; color: var(--text-secondary); margin-bottom: 8px;">Fördelning vid köp enligt "Mix":</div>
+                ${mixDistHtml}
             </div>
         </div>
-        <div class="bk-totals-grid">
     `;
 
-    // Per-supplier totals
+    // Pre-build all supplier cards HTML
+    const supplierCardsHtmlMap = {};
     for (const id of supplierIds) {
         const sup = SUPPLIERS[id];
-        const total = supplierTotals[id];
+        const total = Math.round(supplierTotals[id]);
         const diff = total - mixTotal;
         const pctMore = mixTotal > 0 ? ((diff / mixTotal) * 100) : 0;
 
-        html += `
-            <div class="bk-total-card" style="border-color:${sup.color}">
+        let diffHtml = '';
+        if (diff > 0) {
+            diffHtml = `<span class="bk-total-diff text-red" style="margin-bottom: 8px; display: inline-block;">Dyrare än mix: +${diff.toFixed(0)} kr (+${pctMore.toFixed(1)}%)</span>`;
+        } else {
+            diffHtml = `<span class="bk-total-diff text-green" style="margin-bottom: 8px; display: inline-block;">Samma som bästa pris</span>`;
+        }
+
+        const isBestSingle = bestSingleTotalsIds && bestSingleTotalsIds.includes(id);
+
+        // Inner Mix List
+        let mixListHtml = '';
+        if (mixDistribution[id] && mixDistribution[id].count > 0) {
+            const items = mixDistribution[id].items;
+            mixListHtml = `
+                <div class="bk-sup-mix-list-container">
+                    <div class="bk-sup-mix-list-header">
+                        <span>Att köpa vid "Mix"-val:</span>
+                        <button class="bk-copy-btn" data-supplier="${id}" title="Kopiera lista som CSV">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                        </button>
+                    </div>
+                    <div class="bk-sup-mix-list-scroller">
+                        ${items.map(i => `<div class="bk-sup-mix-item"><span class="bk-mix-enr">${i.enr}</span><span class="bk-mix-qty">${i.qty} st</span></div>`).join('')}
+                    </div>
+                </div>
+            `;
+        }
+
+        supplierCardsHtmlMap[id] = `
+            <div class="bk-total-card ${isBestSingle && total > 0 ? 'bk-total-cheapest' : ''}" style="border-color:${sup.color}">
                 <div class="bk-total-header" style="background:${sup.color}">
-                    <span>${sup.icon} ${sup.name}</span>
+                    <span>${sup.name} ${isBestSingle && total > 0 ? '(Billigast som ensam leverantör)' : ''}</span>
                 </div>
                 <div class="bk-total-body">
-                    <span class="bk-total-amount">${total.toFixed(0)} kr</span>
-                    ${diff > 0.01 ? `<span class="bk-total-diff text-red">+${diff.toFixed(0)} kr (+${pctMore.toFixed(1)}%)</span>` : ''}
+                    <div class="bk-total-info">
+                        <span class="bk-total-amount">${total.toFixed(0)} kr</span>
+                        ${total > 0 && isBestSingle ? '<span style="font-size: 0.75rem; color: var(--green); margin-bottom: 4px; font-weight: 600;">✅ Vårt val av helhetsleverantör</span>' : ''}
+                        ${total > 0 ? diffHtml : '<span class="text-muted" style="font-size: 0.85rem">Inga artiklar hos denna leverantör</span>'}
+                    </div>
+                    ${mixListHtml}
                 </div>
             </div>
         `;
     }
 
-    html += '</div>';
+    // Assemble final Layout
+    if (recommendMix || !bestSingleTotalsIds || bestSingleTotalsIds.length === 0) {
+        // Recommend Mix: Mix card on top row, all suppliers in grid
+        html += `
+            <div class="bk-total-mix-fullrow">
+                ${mixCardHtml}
+            </div>
+            <div class="bk-totals-grid">
+        `;
+        for (const id of supplierIds) {
+            html += supplierCardsHtmlMap[id];
+        }
+        html += '</div>';
+    } else {
+        // Recommend Single Supplier(s): Put the best single supplier(s) in a top grid, then Mix and others below
+        html += `<div class="bk-totals-grid" style="margin-bottom: 12px;">`;
+        for (const id of bestSingleTotalsIds) {
+            html += supplierCardsHtmlMap[id];
+        }
+        html += `</div>`;
+
+        // Second grid for the rest
+        html += `<div class="bk-totals-grid">`;
+        html += mixCardHtml; // Mix card goes in second grid
+        for (const id of supplierIds) {
+            if (!bestSingleTotalsIds.includes(id)) {
+                html += supplierCardsHtmlMap[id];
+            }
+        }
+        html += '</div>';
+    }
     container.innerHTML = html;
+
+    // Attach copy clipboard event listeners
+    const totalsContainer = document.getElementById('bk-totals');
+    totalsContainer.querySelectorAll('.bk-copy-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const id = btn.dataset.supplier;
+            if (mixDistribution[id]) {
+                const csvData = mixDistribution[id].items.map(i => `${i.enr}; ${i.qty}`).join('\\n');
+                navigator.clipboard.writeText(csvData).then(() => {
+                    const originalHtml = btn.innerHTML;
+                    btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--green)" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>';
+                    setTimeout(() => btn.innerHTML = originalHtml, 2000);
+                }).catch(err => {
+                    console.error('Failed to copy text: ', err);
+                });
+            }
+        });
+    });
 }
 
 // ── Public show ───────────────────────────────────────────────────

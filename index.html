@@ -32,6 +32,36 @@
                 <p class="brand-tagline">Jämför grossistpriser — hitta besparingar direkt.</p>
             </div>
 
+            <!-- How it works (horizontal, compact) -->
+            <div class="how-it-works">
+                <div class="steps">
+                    <div class="step">
+                        <div class="step-num">1</div>
+                        <div class="step-text">
+                            <strong>Ladda upp</strong>
+                            <span>Dra in rabattavtal</span>
+                        </div>
+                    </div>
+                    <div class="step">
+                        <div class="step-num">2</div>
+                        <div class="step-text">
+                            <strong>Analysera</strong>
+                            <span>Matcha & jämför</span>
+                        </div>
+                    </div>
+                    <div class="step">
+                        <div class="step-num">3</div>
+                        <div class="step-text">
+                            <strong>Spara pengar</strong>
+                            <span>Se billigaste priset</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Analyze button (moved up) -->
+            <button id="analyze-btn" class="analyze-btn" disabled>Ladda upp minst 2 avtal</button>
+
             <!-- Upload feedback (above drop zone) -->
             <div id="upload-feedback" class="upload-feedback">&nbsp;</div>
 
@@ -56,46 +86,8 @@
             <!-- Supplier chips -->
             <div id="supplier-chips" class="supplier-chips"></div>
 
-            <!-- Analyze button -->
-            <button id="analyze-btn" class="analyze-btn" disabled>Ladda upp minst 2 avtal</button>
-
-            <!-- Privacy badge (footnote) -->
-            <div class="privacy-footnote">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
-                    <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
-                </svg>
-                <span>Din data lämnar aldrig din dator</span>
-            </div>
-
-            <!-- How it works (horizontal) -->
-            <div class="how-it-works">
-                <h3>Hur fungerar det?</h3>
-                <div class="steps">
-                    <div class="step">
-                        <div class="step-num">1</div>
-                        <div class="step-text">
-                            <strong>Ladda upp</strong>
-                            <span>Dra & släpp rabattavtal</span>
-                        </div>
-                    </div>
-                    <div class="step">
-                        <div class="step-num">2</div>
-                        <div class="step-text">
-                            <strong>Analys</strong>
-                            <span>Vi matchar och jämför</span>
-                        </div>
-                    </div>
-                    <div class="step">
-                        <div class="step-num">3</div>
-                        <div class="step-text">
-                            <strong>Rapport</strong>
-                            <span>Se besparingar & exportera</span>
-                        </div>
-                    </div>
-                </div>
-            </div>
         </div>
+    </div>
     </div>
 
     <!-- ═══════════════════════════════════════════════════════════
@@ -262,13 +254,23 @@
                     <details id="fav-panel" class="fav-panel">
                         <summary>Favoritlista (E-nummer)</summary>
                         <div class="fav-body">
-                            <textarea id="fav-enr-input" class="fav-textarea"
-                                placeholder="Klistra in E-nummer, ett per rad..."></textarea>
-                            <div class="fav-actions">
-                                <label class="btn-fav-file">
-                                    📁 Ladda fil (.txt/.csv)
-                                    <input type="file" id="fav-file-input" accept=".txt,.csv" style="display:none">
+                            <div class="fav-dropzone" id="fav-dropzone">
+                                <textarea id="fav-enr-input" class="fav-textarea"
+                                    placeholder="Klistra in eller dra & släpp E-nummer filer här..."></textarea>
+                                <label class="fav-upload-icon-btn" title="Ladda upp fil">
+                                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                        stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                                        <polyline points="17 8 12 3 7 8"></polyline>
+                                        <line x1="12" y1="3" x2="12" y2="15"></line>
+                                    </svg>
+                                    <input type="file" id="fav-file-input" accept=".txt,.csv" multiple
+                                        style="display:none">
                                 </label>
+                            </div>
+                            <div class="fav-actions">
+                                <button id="btn-fav-update" class="btn-fav-update"
+                                    title="Uppdateras automatiskt vid inmatning">Uppdatera</button>
                                 <button id="btn-fav-clear" class="btn-fav-clear">Rensa</button>
                             </div>
                             <span id="fav-count" class="fav-count"></span>
@@ -398,43 +400,12 @@
                     <div class="qs-input-row">
                         <input type="text" id="qs-enr-input" class="qs-input" placeholder="T.ex. 1234567" maxlength="7"
                             inputmode="numeric">
-                        <button id="qs-search-btn" class="qs-search-btn">Sök</button>
-                        <button id="qs-scan-btn" class="qs-scan-btn" title="Skanna streckkod">
-                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                stroke-width="2">
-                                <rect x="3" y="3" width="7" height="7"></rect>
-                                <rect x="14" y="3" width="7" height="7"></rect>
-                                <rect x="3" y="14" width="7" height="7"></rect>
-                                <line x1="14" y1="14" x2="14" y2="14.01"></line>
-                                <line x1="21" y1="14" x2="21" y2="14.01"></line>
-                                <line x1="14" y1="21" x2="14" y2="21.01"></line>
-                                <line x1="21" y1="21" x2="21" y2="21.01"></line>
-                                <line x1="17.5" y1="14" x2="17.5" y2="21"></line>
-                                <line x1="14" y1="17.5" x2="21" y2="17.5"></line>
-                            </svg>
-                        </button>
                     </div>
                 </div>
             </div>
 
             <!-- Results Area -->
             <div id="qs-results" class="qs-results"></div>
-
-            <!-- Camera Overlay -->
-            <div id="qs-camera-overlay" class="qs-camera-overlay">
-                <div class="qs-camera-header">
-                    <span id="qs-scan-status">Startar kamera...</span>
-                    <button class="qs-camera-close" onclick="document.getElementById('qs-scan-btn').click()">
-                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                            stroke-width="2">
-                            <line x1="18" y1="6" x2="6" y2="18"></line>
-                            <line x1="6" y1="6" x2="18" y2="18"></line>
-                        </svg>
-                    </button>
-                </div>
-                <video id="qs-camera-video" class="qs-camera-video" autoplay playsinline muted></video>
-                <div class="qs-scan-target"></div>
-            </div>
         </div>
     </div>
 

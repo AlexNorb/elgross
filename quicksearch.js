@@ -3,9 +3,6 @@
 import { SUPPLIERS } from './suppliers.js';
 import { showScreen, getResultsData } from './dashboard.js';
 
-let scannerStream = null;
-let scannerActive = false;
-let zxingLoaded = false;
 let hasInitialized = false;
 
 // ── Init ──────────────────────────────────────────────────────────
@@ -15,18 +12,16 @@ function initQuickSearch() {
     hasInitialized = true;
 
     const searchInput = document.getElementById('qs-enr-input');
-    const searchBtn = document.getElementById('qs-search-btn');
-    const scanBtn = document.getElementById('qs-scan-btn');
     const backBtn = document.getElementById('qs-back-btn');
 
     if (!searchInput) return;
 
-    // Search on button click
-    searchBtn.addEventListener('click', () => doSearch());
-
     // Search on Enter key
     searchInput.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') doSearch();
+        if (e.key === 'Enter') {
+            doSearch();
+            searchInput.blur(); // Close numberpad on mobile
+        }
     });
 
     // Auto-search when 7 digits are entered
@@ -35,15 +30,12 @@ function initQuickSearch() {
         if (val.length === 7) {
             searchInput.value = val;
             doSearch();
+            searchInput.blur(); // Close numberpad on mobile
         }
     });
 
-    // Scan button
-    scanBtn.addEventListener('click', () => toggleScanner());
-
     // Back button (goes to main dashboard)
     backBtn.addEventListener('click', () => {
-        stopScanner();
         showScreen('results');
     });
 }
@@ -206,134 +198,6 @@ function renderResult(enr, rows, bestId, bestNet, supplierIds) {
             }, 1500);
         });
     }
-}
-
-// ── Barcode Scanner ───────────────────────────────────────────────
-
-async function toggleScanner() {
-    if (scannerActive) {
-        stopScanner();
-        return;
-    }
-    await startScanner();
-}
-
-async function loadZXing() {
-    if (zxingLoaded) return true;
-
-    return new Promise((resolve) => {
-        const script = document.createElement('script');
-        script.src = 'https://unpkg.com/@aspect-build/aspect-zxing-browser@0.0.8/umd/index.min.js';
-        script.onload = () => {
-            zxingLoaded = true;
-            resolve(true);
-        };
-        script.onerror = () => {
-            // Try alternative CDN
-            const script2 = document.createElement('script');
-            script2.src = 'https://unpkg.com/@aspect-build/aspect-zxing-browser@latest/umd/index.min.js';
-            script2.onload = () => { zxingLoaded = true; resolve(true); };
-            script2.onerror = () => resolve(false);
-            document.head.appendChild(script2);
-        };
-        document.head.appendChild(script);
-    });
-}
-
-async function startScanner() {
-    const overlay = document.getElementById('qs-camera-overlay');
-    const video = document.getElementById('qs-camera-video');
-    const statusEl = document.getElementById('qs-scan-status');
-
-    // Show overlay
-    overlay.classList.add('active');
-    statusEl.textContent = 'Startar kamera...';
-
-    try {
-        // Try to get camera
-        scannerStream = await navigator.mediaDevices.getUserMedia({
-            video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } }
-        });
-        video.srcObject = scannerStream;
-        await video.play();
-        scannerActive = true;
-
-        statusEl.textContent = 'Rikta kameran mot en streckkod...';
-
-        // Start scanning loop using canvas-based decoding
-        scanLoop(video, statusEl);
-    } catch (err) {
-        console.error('Camera error:', err);
-        statusEl.textContent = 'Kunde inte starta kameran. Kontrollera behörigheter.';
-        setTimeout(() => stopScanner(), 3000);
-    }
-}
-
-function scanLoop(video, statusEl) {
-    if (!scannerActive) return;
-
-    const canvas = document.createElement('canvas');
-    const ctx = canvas.getContext('2d');
-
-    const tick = () => {
-        if (!scannerActive) return;
-
-        if (video.readyState === video.HAVE_ENOUGH_DATA) {
-            canvas.width = video.videoWidth;
-            canvas.height = video.videoHeight;
-            ctx.drawImage(video, 0, 0);
-
-            // Try to detect barcode using BarcodeDetector API (Chrome 83+, Android)
-            if ('BarcodeDetector' in window) {
-                const detector = new BarcodeDetector({ formats: ['ean_13', 'ean_8', 'code_128'] });
-                detector.detect(canvas)
-                    .then(barcodes => {
-                        if (barcodes.length > 0) {
-                            const code = barcodes[0].rawValue;
-                            handleScannedCode(code);
-                            return;
-                        }
-                    })
-                    .catch(() => { /* ignore detection errors */ });
-            }
-        }
-
-        requestAnimationFrame(tick);
-    };
-
-    tick();
-}
-
-function handleScannedCode(code) {
-    // E-nummer is typically 7 digits; EAN-13 barcodes for EL articles
-    // may have the E-nummer embedded. Try extracting 7-digit portion.
-    let enr = code.replace(/\D/g, '');
-
-    // If 13 digits (EAN-13), E-nummer might be digits 3-9 or similar
-    // For now, try the last 7 digits if > 7
-    if (enr.length > 7) {
-        enr = enr.slice(-7);
-    }
-
-    if (enr.length === 7) {
-        const input = document.getElementById('qs-enr-input');
-        input.value = enr;
-        stopScanner();
-        doSearch();
-    }
-}
-
-function stopScanner() {
-    scannerActive = false;
-    const overlay = document.getElementById('qs-camera-overlay');
-    const video = document.getElementById('qs-camera-video');
-
-    if (scannerStream) {
-        scannerStream.getTracks().forEach(t => t.stop());
-        scannerStream = null;
-    }
-    if (video) video.srcObject = null;
-    if (overlay) overlay.classList.remove('active');
 }
 
 // ── Public show function ──────────────────────────────────────────

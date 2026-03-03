@@ -489,7 +489,54 @@ function setupFilters(results) {
 
   // Favoritlista
   const favFileInput = document.getElementById('fav-file-input');
-  if (favFileInput) favFileInput.addEventListener('change', loadFavFile);
+  if (favFileInput) {
+    favFileInput.addEventListener('change', (e) => {
+      handleFavFiles(e.target.files);
+      e.target.value = ''; // Reset
+    });
+  }
+
+  const favTa = document.getElementById('fav-enr-input');
+  if (favTa) {
+    let debounceTimer;
+    favTa.addEventListener('input', () => {
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        parseFavInput();
+        if (favFilterMode !== null) applyAllSections();
+      }, 500);
+    });
+  }
+
+  const favUpdateBtn = document.getElementById('btn-fav-update');
+  if (favUpdateBtn) {
+    favUpdateBtn.addEventListener('click', () => {
+      parseFavInput();
+      if (favFilterMode !== null) applyAllSections();
+    });
+  }
+
+  const favDropzone = document.getElementById('fav-dropzone');
+  if (favDropzone) {
+    ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+      favDropzone.addEventListener(eventName, (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+      }, false);
+    });
+    ['dragenter', 'dragover'].forEach(eventName => {
+      favDropzone.addEventListener(eventName, () => favDropzone.classList.add('dragover'), false);
+    });
+    ['dragleave', 'drop'].forEach(eventName => {
+      favDropzone.addEventListener(eventName, () => favDropzone.classList.remove('dragover'), false);
+    });
+    favDropzone.addEventListener('drop', (e) => {
+      if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+        handleFavFiles(e.dataTransfer.files);
+      }
+    }, false);
+  }
+
   const favClearBtn = document.getElementById('btn-fav-clear');
   if (favClearBtn) favClearBtn.addEventListener('click', clearFavList);
   const favDirectBtn = document.getElementById('btn-fav-direct');
@@ -1161,18 +1208,28 @@ function parseFavInput() {
   }
 }
 
-function loadFavFile(event) {
-  const file = event.target.files[0];
-  if (!file) return;
-  const reader = new FileReader();
-  reader.onload = (e) => {
-    const ta = document.getElementById('fav-enr-input');
-    if (ta) ta.value = e.target.result;
-    parseFavInput();
-  };
-  reader.readAsText(file);
-  // Reset so the same file can be re-loaded
-  event.target.value = '';
+function handleFavFiles(files) {
+  if (!files || files.length === 0) return;
+  const ta = document.getElementById('fav-enr-input');
+  if (!ta) return;
+
+  let filesProcessed = 0;
+  let allText = ta.value;
+  if (allText && !allText.endsWith('\n')) allText += '\n';
+
+  Array.from(files).forEach(file => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      allText += e.target.result + '\n';
+      filesProcessed++;
+      if (filesProcessed === files.length) {
+        ta.value = allText;
+        parseFavInput();
+        if (favFilterMode !== null) applyAllSections();
+      }
+    };
+    reader.readAsText(file);
+  });
 }
 
 function clearFavList() {

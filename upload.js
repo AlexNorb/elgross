@@ -181,11 +181,11 @@ function updateSupplierChips() {
 
         if (uploadedFiles[id]) {
             const file = uploadedFiles[id];
-            // Show filename + date if available
-            let statusText = file.name;
+            // Show only 'Uppladdad' + date to save space
+            let statusText = 'Uppladdad';
             if (file.date) {
                 const d = new Date(file.date);
-                statusText += ` (${d.toLocaleDateString('sv-SE')})`;
+                statusText += ` ${d.toLocaleDateString('sv-SE')}`;
             }
             status.textContent = statusText;
             // Add remove button

@@ -30,13 +30,21 @@ async function loadSheetJS() {
  */
 async function exportToExcel(filteredData, SUPPLIERS) {
     const xlsx = await loadSheetJS();
-    const wb = xlsx.utils.book_new();
 
     const { filtered, supplierIds, dynamicRecommendations } = filteredData;
     const stats = computeStats(filtered, supplierIds);
     const categoryStats = computeCategoryStats(filtered, supplierIds);
 
+    // Name file with filter info if available
+    const searchParam = document.getElementById('f-enr-search')?.value.trim();
+    const grwParam = document.getElementById('f-group')?.value.trim();
+    let filterString = '';
+    if (grwParam) filterString = `_${grwParam.replace(/[^a-z0-9]/gi, '')}`;
+    else if (searchParam) filterString = `_sok`;
+    const timestamp = new Date().toISOString().slice(0, 10);
+
     for (const id of supplierIds) {
+        const wb = xlsx.utils.book_new();
         const sup = SUPPLIERS[id];
 
         const wbData = [];
@@ -50,8 +58,8 @@ async function exportToExcel(filteredData, SUPPLIERS) {
         wbData.push(['Sammanfattning']);
         wbData.push(['Filtrerade artiklar', stats.count]);
         wbData.push([`${sup.name} billigast på`, `${winPct}% av artiklarna`]);
-        wbData.push(['Snitt överpris', `${stats.avgMaxMarkup.toFixed(1)}%`]);
-        wbData.push(['Median överpris', `${stats.medianMaxMarkup.toFixed(1)}%`]);
+        wbData.push(['Snitt överpris', `${(stats.supplierStats[id]?.avgMarkup || 0).toFixed(1)}%`]);
+        wbData.push(['Median överpris', `${(stats.supplierStats[id]?.medianMarkup || 0).toFixed(1)}%`]);
         wbData.push([]);
 
         // 2. Kategorianalys
@@ -77,7 +85,7 @@ async function exportToExcel(filteredData, SUPPLIERS) {
         // 3. Förhandlingsunderlag
         wbData.push(['Förhandlingsunderlag - Rabattgrupper']);
         // Header row
-        wbData.push(['Rabattgrupp', 'Dyrare artiklar (totalt)', 'Snitt överpris %', 'Nuv. rabatt %', 'Mål %', 'Diff %']);
+        wbData.push(['Rabattgrupp', 'Dyrare artiklar', 'Snitt överpris %', 'Nuv. rabatt %', 'Mål %', 'Diff %']);
 
         const headerRowIndex = wbData.length - 1; // 0-indexed index of the header row
 
@@ -89,9 +97,10 @@ async function exportToExcel(filteredData, SUPPLIERS) {
             })).filter(r => r.diffPct >= 1).sort((a, b) => b.diffPct - a.diffPct);
 
             recs.forEach(r => {
+                const dyrareCount = r.losingCount !== undefined ? r.losingCount : r.articleCount;
                 wbData.push([
                     r.group,
-                    `${r.losingCount || r.articleCount} (${r.articleCount})`,
+                    dyrareCount,
                     Math.round(r.avgMarkup * 10) / 10,
                     Math.round(r.currentDiscount * 10) / 10,
                     Math.round(r.targetDiscount * 10) / 10,
@@ -121,18 +130,11 @@ async function exportToExcel(filteredData, SUPPLIERS) {
 
         let sheetName = sup.name.substring(0, 31); // Max length in excel
         xlsx.utils.book_append_sheet(wb, ws, sheetName);
+
+        // Name file with supplier name + date
+        let safeSupName = sup.name.replace(/[^a-z0-9åäöÅÄÖ\-_\s]/gi, '').trim().replace(/\s+/g, '_');
+        xlsx.writeFile(wb, `${safeSupName}_${timestamp}${filterString}.xlsx`);
     }
-
-    // Name file with filter info if available
-    const searchParam = document.getElementById('f-enr-search')?.value.trim();
-    const grwParam = document.getElementById('f-group')?.value.trim();
-    let filterString = '';
-    if (grwParam) filterString = `_${grwParam.replace(/[^a-z0-9]/gi, '')}`;
-    else if (searchParam) filterString = `_sok`;
-
-    // ── Download ─────────
-    const timestamp = new Date().toISOString().slice(0, 10);
-    xlsx.writeFile(wb, `forhandling_${timestamp}${filterString}.xlsx`);
 }
 
 export { exportToExcel };
