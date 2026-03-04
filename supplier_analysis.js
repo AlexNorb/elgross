@@ -153,12 +153,15 @@ function renderKPICards() {
 
     const totalGroups = groups.length;
     const totalArticles = groups.reduce((s, g) => s + g.count, 0);
-    const suspicious = groups.filter(g => g.spread >= saSpreadThreshold).length;
+    const suspicious = groups.filter(g => g.spread >= saSpreadThreshold);
+    const suspiciousCount = suspicious.length;
     const spreads = groups.map(g => g.spread).sort((a, b) => a - b);
-    const medianSpread = spreads.length > 0
-        ? (spreads.length % 2 === 0
-            ? (spreads[spreads.length / 2 - 1] + spreads[spreads.length / 2]) / 2
-            : spreads[Math.floor(spreads.length / 2)])
+    // Median spread computed from suspicious groups only (more meaningful)
+    const suspSpreads = suspicious.map(g => g.spread).sort((a, b) => a - b);
+    const medianSpread = suspSpreads.length > 0
+        ? (suspSpreads.length % 2 === 0
+            ? (suspSpreads[suspSpreads.length / 2 - 1] + suspSpreads[suspSpreads.length / 2]) / 2
+            : suspSpreads[Math.floor(suspSpreads.length / 2)])
         : 0;
     const maxSpread = spreads.length > 0 ? spreads[spreads.length - 1] : 0;
 
@@ -172,16 +175,16 @@ function renderKPICards() {
             <span class="sa-kpi-value">${totalArticles.toLocaleString('sv-SE')}</span>
         </div>
         <div class="sa-kpi sa-kpi--warn">
-            <span class="sa-kpi-label">Grupper ≥ ${saSpreadThreshold}% spread</span>
-            <span class="sa-kpi-value" style="color: ${suspicious > 0 ? '#ef4444' : 'var(--text-primary)'}">${suspicious}</span>
+            <span class="sa-kpi-label">Grupper ≥ ${saSpreadThreshold} spread</span>
+            <span class="sa-kpi-value" style="color: ${suspiciousCount > 0 ? '#ef4444' : 'var(--text-primary)'}">${suspiciousCount}</span>
         </div>
         <div class="sa-kpi">
-            <span class="sa-kpi-label">Median spread</span>
-            <span class="sa-kpi-value">${medianSpread.toFixed(1)}%</span>
+            <span class="sa-kpi-label">Median spread (misstänkta)</span>
+            <span class="sa-kpi-value">${suspSpreads.length > 0 ? Math.round(medianSpread) : '—'}</span>
         </div>
         <div class="sa-kpi">
             <span class="sa-kpi-label">Max spread</span>
-            <span class="sa-kpi-value" style="color: ${maxSpread > saSpreadThreshold ? '#ef4444' : 'inherit'}">${maxSpread.toFixed(1)}%</span>
+            <span class="sa-kpi-value" style="color: ${maxSpread > saSpreadThreshold ? '#ef4444' : 'inherit'}">${Math.round(maxSpread)}</span>
         </div>
     `;
 }
@@ -226,11 +229,18 @@ function renderGroupTable() {
     // Filtrera efter tröskel — visa ALLA, men markera misstänkta
     // (filtrera endast om checkbox är aktivt, annars visa allt sorterat)
     const showOnlySuspicious = document.getElementById('sa-only-suspicious')?.checked ?? false;
-    const groups = showOnlySuspicious
+    const baseGroups = showOnlySuspicious
         ? allGroups.filter(g => g.spread >= saSpreadThreshold)
         : allGroups;
 
-    // Sorteria
+    // Berika med outlierPct innan sortering
+    const groups = baseGroups.map(g => {
+        const cutoff = g.min + saSpreadThreshold;
+        const outlierCount = g.items.filter(i => i.markup >= cutoff).length;
+        return { ...g, outlierPct: Math.round((outlierCount / g.count) * 100) };
+    });
+
+    // Sortera
     const sorted = [...groups].sort((a, b) => {
         let va = a[saSortCol], vb = b[saSortCol];
         if (typeof va === 'string') return saSortAsc ? va.localeCompare(vb) : vb.localeCompare(va);
@@ -247,10 +257,9 @@ function renderGroupTable() {
         { key: 'grp', label: 'Grupp', cls: '' },
         { key: 'count', label: 'Art.', cls: 'sa-col-num' },
         { key: 'avgDisc', label: 'Rabatt%', cls: 'sa-col-num' },
-        { key: 'min', label: 'Min överpris', cls: 'sa-col-num' },
         { key: 'median', label: 'Median', cls: 'sa-col-num' },
-        { key: 'max', label: 'Max överpris', cls: 'sa-col-num' },
         { key: 'spread', label: 'Spread', cls: 'sa-col-num sa-col-spread' },
+        { key: 'outlierPct', label: 'Toppar', cls: 'sa-col-bar' },
     ];
 
     cols.forEach(({ key, label, cls }) => {
@@ -283,18 +292,23 @@ function renderGroupTable() {
         row.className = `sa-table-row${isSuspicious ? ' sa-row--suspicious' : ''}${isSelected ? ' sa-row--selected' : ''}`;
 
         const spreadColor = spreadToColor(g.spread);
+        const outlierPct = g.outlierPct; // redan beräknat ovan
 
         row.innerHTML = `
             <span class="sa-td sa-group-name">${g.grp}</span>
             <span class="sa-td sa-col-num">${g.count}</span>
             <span class="sa-td sa-col-num">${g.avgDisc.toFixed(1)}%</span>
-            <span class="sa-td sa-col-num ${g.min > 0.01 ? 'sa-text-red' : 'sa-text-green'}">${g.min < 0.01 ? '0%' : '+' + g.min.toFixed(1) + '%'}</span>
-            <span class="sa-td sa-col-num">${g.median.toFixed(1)}%</span>
-            <span class="sa-td sa-col-num sa-text-red">${g.max < 0.01 ? '0%' : '+' + g.max.toFixed(1) + '%'}</span>
+            <span class="sa-td sa-col-num">${Math.round(g.median)}%</span>
             <span class="sa-td sa-col-num sa-col-spread">
                 <span class="sa-spread-pill" style="background:${spreadColor.bg}; color:${spreadColor.fg}">
-                    ${g.spread.toFixed(1)} pp
+                    ${Math.round(g.spread)}
                 </span>
+            </span>
+            <span class="sa-td sa-col-bar">
+                <span class="sa-bar-wrap">
+                    <span class="sa-bar-fill" style="width:${outlierPct}%"></span>
+                </span>
+                <span class="sa-bar-pct">${outlierPct}%</span>
             </span>
         `;
 
@@ -337,18 +351,20 @@ function renderDrillDown(group) {
     }
 
     const sup = SUPPLIERS[saCurrentSup];
+    const cutoff = group.min + saSpreadThreshold;
     const items = [...group.items].sort((a, b) => b.markup - a.markup);
 
     let rowsHtml = items.map(item => {
         const s = item.article.suppliers[saCurrentSup];
-        const cls = item.markup > 0.01 ? 'sa-text-red' : 'sa-text-green';
+        const isTopper = item.markup >= cutoff;
+        const markupCls = item.markup > 0.01 ? 'sa-text-red' : 'sa-text-green';
         const markupDisplay = item.markup < 0.01 ? '0%' : '+' + item.markup.toFixed(1) + '%';
         return `
-            <tr>
+            <tr class="${isTopper ? 'sa-row-topper' : ''}">
                 <td>${item.enr}</td>
                 <td>${s ? s.net.toFixed(2) : '—'}</td>
                 <td>${s ? s.list.toFixed(2) : '—'}</td>
-                <td class="${cls}">${markupDisplay}</td>
+                <td class="${markupCls}">${markupDisplay}</td>
                 <td>${item.article.cheapest === saCurrentSup ? '✓' : item.article.cheapest === 'equal' ? '=' : ''}</td>
             </tr>
         `;
