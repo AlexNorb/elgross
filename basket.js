@@ -179,7 +179,11 @@ function renderBasket() {
                     <th>E-nummer</th>
                     <th>Antal</th>
                     <th>Bäst pris</th>
-                    <th class="bk-col-sup"></th>
+                    <th class="bk-col-sup">
+                        <button class="bk-copy-btn bk-copy-all-btn" style="padding: 2px; width: 22px; height: 22px; display: inline-flex; align-items: center; justify-content: center; margin: 0 auto; border-radius: 4px;" title="Kopiera hela varukorgen som CSV">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                        </button>
+                    </th>
                 </tr></thead>
                 <tbody>`;
 
@@ -268,7 +272,7 @@ function renderBasket() {
             `<td class="bk-enr">${enr}</td>` +
             `<td><div class="bk-qty-controls">` +
             `<button class="bk-qty-btn" data-enr="${enr}" data-delta="-1">−</button>` +
-            `<span class="bk-qty-value">${qty}</span>` +
+            `<input type="number" class="bk-qty-input" data-enr="${enr}" value="${qty}" min="1" step="1">` +
             `<button class="bk-qty-btn" data-enr="${enr}" data-delta="1">+</button>` +
             `</div></td>`;
 
@@ -313,10 +317,44 @@ function renderBasket() {
         });
     });
 
+    container.querySelectorAll('.bk-qty-input').forEach(input => {
+        input.addEventListener('change', () => {
+            const enr = input.dataset.enr;
+            let val = parseInt(input.value, 10);
+            if (isNaN(val) || val < 1) val = 1;
+            const existing = basketItems.get(enr);
+            if (existing) {
+                existing.qty = val;
+                saveBasket();
+                renderBasket();
+            }
+        });
+        input.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') input.blur();
+        });
+    });
+
     container.querySelectorAll('.bk-remove-btn').forEach(btn => {
         btn.addEventListener('click', () => {
             removeFromBasket(btn.dataset.enr);
             renderBasket();
+        });
+    });
+
+    container.querySelectorAll('.bk-copy-all-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const allItems = [];
+            for (const [enr, item] of basketItems) {
+                allItems.push(`${enr}; ${item.qty}`);
+            }
+            const csvData = allItems.join('\n');
+            navigator.clipboard.writeText(csvData).then(() => {
+                const originalHtml = btn.innerHTML;
+                btn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--green)" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>';
+                setTimeout(() => btn.innerHTML = originalHtml, 2000);
+            }).catch(err => {
+                console.error('Failed to copy text: ', err);
+            });
         });
     });
 
@@ -486,7 +524,7 @@ function renderTotals(data) {
         btn.addEventListener('click', () => {
             const id = btn.dataset.supplier;
             if (mixDistribution[id]) {
-                const csvData = mixDistribution[id].items.map(i => `${i.enr}; ${i.qty}`).join('\\n');
+                const csvData = mixDistribution[id].items.map(i => `${i.enr}; ${i.qty}`).join('\n');
                 navigator.clipboard.writeText(csvData).then(() => {
                     const originalHtml = btn.innerHTML;
                     btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--green)" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>';
