@@ -152,6 +152,17 @@
                         Varukorg
                         <span class="basket-badge" style="display:none">0</span>
                     </button>
+                    <button id="sup-analysis-btn" class="topbar-action-btn" title="Leverantörsanalys">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2">
+                            <path d="M2 20h20"></path>
+                            <path d="M6 20V10"></path>
+                            <path d="M10 20V4"></path>
+                            <path d="M14 20V14"></path>
+                            <path d="M18 20V8"></path>
+                        </svg>
+                        Leverantörsanalys
+                    </button>
                     <button id="export-btn" class="export-btn">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                             stroke-width="2">
@@ -410,6 +421,67 @@
     </div>
 
     <!-- ═══════════════════════════════════════════════════════════
+         SCREEN 6: SUPPLIER ANALYSIS / LEVERANTÖRSANALYS
+         ═══════════════════════════════════════════════════════════ -->
+    <div id="screen-supplier-analysis" class="screen">
+        <div class="sa-container">
+            <!-- Top Bar -->
+            <div class="sa-topbar">
+                <button id="sa-back-btn" class="back-btn" title="Tillbaka till analys-dashboarden">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <polyline points="15 18 9 12 15 6"></polyline>
+                    </svg>
+                    Visa Analys
+                </button>
+                <div class="topbar-brand">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M2 20h20"></path>
+                        <path d="M6 20V10"></path>
+                        <path d="M10 20V4"></path>
+                        <path d="M14 20V14"></path>
+                        <path d="M18 20V8"></path>
+                    </svg>
+                    Leverantörsanalys
+                </div>
+            </div>
+
+            <!-- Heading -->
+            <div class="sa-heading">
+                <h2>Analys av rabattgrupper</h2>
+                <p class="sa-heading-sub">Stor spridning (spread) av överpris% inom samma rabattgrupp indikerar fel i
+                    GNP-listan, att gruppen bör delas upp, eller att en konkurrerande leverantörs priser är felaktiga.
+                    Läser <strong>all</strong> GNP-data — inga aktiva filter gäller här.</p>
+            </div>
+
+            <!-- Supplier Tabs -->
+            <div id="sa-sup-tabs" class="sa-sup-tabs"></div>
+
+            <!-- KPI Cards -->
+            <div id="sa-kpi-cards" class="sa-kpi-cards"></div>
+
+            <!-- Controls Row -->
+            <div class="sa-controls-row">
+                <div id="sa-threshold-control"></div>
+                <label class="sa-only-label">
+                    <input type="checkbox" id="sa-only-suspicious">
+                    Visa bara misstänkta grupper
+                </label>
+            </div>
+
+            <!-- Main content: table + drill-down -->
+            <div class="sa-main">
+                <!-- Group Table -->
+                <div class="sa-table-wrap">
+                    <div id="sa-group-table" class="sa-group-table"></div>
+                </div>
+
+                <!-- Drill-down -->
+                <div id="sa-drilldown" class="sa-drilldown"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════════
          SCREEN 5: SHOPPING BASKET / VARUKORG
          ═══════════════════════════════════════════════════════════ -->
     <div id="screen-basket" class="screen">
@@ -464,11 +536,12 @@
     <!-- App Entry Point -->
     <script type="module">
         import { initUpload } from './upload.js';
-        import { showScreen, getFilteredData } from './dashboard.js';
+        import { showScreen, getFilteredData, getResultsData } from './dashboard.js';
         import { exportToExcel } from './export.js';
         import { SUPPLIERS } from './suppliers.js';
         import { showQuickSearch } from './quicksearch.js';
         import { showBasket, loadBasket, updateBadge } from './basket.js';
+        import { initSupplierAnalysis } from './supplier_analysis.js';
 
         // Initialize
         showScreen('upload');
@@ -481,6 +554,19 @@
         // Quick Search button (from results top bar)
         document.getElementById('quicksearch-btn').addEventListener('click', () => {
             showQuickSearch();
+        });
+
+        // Supplier Analysis button
+        document.getElementById('sup-analysis-btn').addEventListener('click', () => {
+            const r = getResultsData();
+            if (!r) return;
+            showScreen('supplier-analysis');
+            initSupplierAnalysis(r);
+        });
+
+        // Back button from Supplier Analysis
+        document.getElementById('sa-back-btn').addEventListener('click', () => {
+            showScreen('results');
         });
 
         // Basket buttons
