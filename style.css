@@ -3035,6 +3035,139 @@ body {
     max-width: 780px;
 }
 
+/* ── Filter Panel ───────────────────────────────────────── */
+.sa-filter-panel {
+    margin-bottom: 20px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    overflow: hidden;
+}
+
+.sa-filter-panel>summary {
+    padding: 12px 18px;
+    cursor: pointer;
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    transition: color 0.15s, background 0.15s;
+    user-select: none;
+}
+
+.sa-filter-panel>summary:hover {
+    color: var(--text-primary);
+    background: rgba(255, 255, 255, 0.02);
+}
+
+.sa-filter-panel>summary::marker,
+.sa-filter-panel>summary::-webkit-details-marker {
+    color: var(--text-muted);
+}
+
+.sa-filter-panel[open]>summary {
+    border-bottom: 1px solid var(--border);
+    color: var(--accent);
+}
+
+.sa-filter-body {
+    padding: 16px 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+/* Reuse analysis filter-bar sub-elements within SA context */
+.sa-filter-body .filter-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 12px;
+}
+
+.sa-filter-body .filter-group {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 110px;
+}
+
+.sa-filter-body .filter-group-grow {
+    flex: 1;
+    min-width: 140px;
+}
+
+.sa-filter-body .filter-group label {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.sa-filter-body .filter-group input,
+.sa-filter-body .filter-group select {
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text-primary);
+    font-family: var(--font);
+    font-size: 0.87rem;
+    padding: 7px 10px;
+    transition: border-color 0.15s;
+}
+
+.sa-filter-body .filter-group input:focus,
+.sa-filter-body .filter-group select:focus {
+    outline: none;
+    border-color: var(--border-focus);
+}
+
+.sa-filter-body .filter-actions {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+}
+
+.sa-filter-body .lookup-row {
+    display: flex;
+    gap: 4px;
+}
+
+.sa-filter-body .filter-advanced-panel {
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+}
+
+.sa-filter-body .filter-advanced-panel>summary {
+    padding: 8px 12px;
+    font-size: 0.82rem;
+    color: var(--text-muted);
+    cursor: pointer;
+}
+
+.sa-filter-body .filter-advanced-panel>summary:hover {
+    color: var(--text-secondary);
+}
+
+.sa-filter-body .filter-advanced-panel[open]>summary {
+    border-bottom: 1px solid var(--border);
+}
+
+.sa-filter-body .filter-row-advanced {
+    padding: 12px;
+}
+
+.sa-filter-body .fav-panel,
+.sa-filter-body .cat-panel {
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+}
+
 /* ── Supplier Tabs ──────────────────────────────────────── */
 .sa-sup-tabs {
     display: flex;

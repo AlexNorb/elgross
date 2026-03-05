@@ -2,10 +2,9 @@
 // Analyserar intern spridning av överpris% inom samma rabattgrupp.
 // Stor spread (Max−Min) indikerar fel i GNP, att gruppen bör delas, eller
 // att en konkurrerande leverantör har felaktiga priser.
-//
-// Läser från currentResults.matched (rådata) — INTE filtrerat urval.
 
 import { SUPPLIERS } from './suppliers.js';
+import { filterArticles } from './engine.js';
 
 let saResults = null;       // Referens till compareSuppliers-output
 let saCurrentSup = null;    // Vald leverantör-id
@@ -14,6 +13,15 @@ let saSpreadThreshold = 30; // Spread-tröskel för "misstänkt" (justerbar)
 let saSortCol = 'spread';
 let saSortAsc = false;
 let saSelectedGroup = null; // För drill-down
+
+// ─── Filter State ──────────────────────────────────────────────────
+
+let saFiltersInitialized = false;
+let saFavFilterMode = null;    // null | 'direct' | 'groups'
+let saFavEnrSet = null;        // Set of 7-digit E-nummers
+let saFavGroupsList = [];      // Array of group names
+let saMinArticlesPerGroup = 0;
+const SA_ENR_REGEX = /^\d{7}$/;
 
 // ─── Public API ────────────────────────────────────────────────────
 
@@ -26,13 +34,14 @@ function initSupplierAnalysis(results) {
     saGroups = {};
     saSelectedGroup = null;
 
-    // Beräkna statistik per leverantör och grupp
-    for (const supId of results.supplierIds) {
-        saGroups[supId] = computeGroupStats(results.matched, supId);
-    }
-
     // Välj första leverantören som default
     saCurrentSup = results.supplierIds[0];
+
+    // Setup filters (once)
+    setupSAFilters();
+
+    // Apply filters to compute groups from (possibly filtered) data
+    applySAFilters();
 
     renderSupplierAnalysis();
 
@@ -52,7 +61,7 @@ function initSupplierAnalysis(results) {
 
 /**
  * Beräkna spread-statistik per rabattgrupp för en leverantör.
- * Använder ALLA matchade artiklar (currentResults.matched), ej filtrerat.
+ * Använder det dataset som skickas in (kan vara filtrerat).
  */
 function computeGroupStats(matched, supId) {
     // Bygg: grp → array av överpris%
@@ -101,6 +110,465 @@ function computeGroupStats(matched, supId) {
     }
 
     return stats;
+}
+
+// ─── Filter Setup ──────────────────────────────────────────────────
+
+function setupSAFilters() {
+    if (saFiltersInitialized) return;
+    saFiltersInitialized = true;
+
+    // Cheapest select — populate dynamically
+    const cheapestSelect = document.getElementById('sa-f-cheapest');
+    if (cheapestSelect && saResults) {
+        let opts = '<option value="">Alla</option>';
+        for (const id of saResults.supplierIds) {
+            opts += `<option value="${id}">${SUPPLIERS[id].name}</option>`;
+        }
+        cheapestSelect.innerHTML = opts;
+    }
+
+    // Apply button
+    const applyBtn = document.getElementById('sa-btn-apply-filters');
+    if (applyBtn) applyBtn.addEventListener('click', () => {
+        applySAFilters();
+        renderSupplierAnalysis();
+    });
+
+    // Enter key on all filter inputs
+    document.querySelectorAll('#sa-filter-panel input, #sa-filter-panel select').forEach(el => {
+        el.addEventListener('keydown', e => {
+            if (e.key === 'Enter') { applySAFilters(); renderSupplierAnalysis(); }
+        });
+    });
+
+    // Reset
+    const resetBtn = document.getElementById('sa-btn-reset-filters');
+    if (resetBtn) resetBtn.addEventListener('click', () => {
+        ['sa-f-group', 'sa-f-lookup-enr', 'sa-f-diff-min', 'sa-f-diff-max',
+            'sa-f-price-min', 'sa-f-price-max', 'sa-f-min-articles'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.value = '';
+            });
+        const cheapest = document.getElementById('sa-f-cheapest');
+        if (cheapest) cheapest.selectedIndex = 0;
+        saFavFilterMode = null;
+        saFavEnrSet = null;
+        saFavGroupsList = [];
+        saMinArticlesPerGroup = 0;
+        updateSAFavButtonStyles();
+        const favTa = document.getElementById('sa-fav-enr-input');
+        if (favTa) favTa.value = '';
+        const favCount = document.getElementById('sa-fav-count');
+        if (favCount) favCount.textContent = '';
+        uncheckSACategories();
+        applySAFilters();
+        renderSupplierAnalysis();
+    });
+
+    // E-nummer → Rabattgrupp lookup
+    const lookupBtn = document.getElementById('sa-btn-lookup-enr');
+    const lookupInput = document.getElementById('sa-f-lookup-enr');
+    if (lookupBtn) lookupBtn.addEventListener('click', lookupSAEnrGroups);
+    if (lookupInput) lookupInput.addEventListener('keydown', e => {
+        if (e.key === 'Enter') lookupSAEnrGroups();
+    });
+
+    // Favoritlista file input
+    const favFileInput = document.getElementById('sa-fav-file-input');
+    if (favFileInput) {
+        favFileInput.addEventListener('change', (e) => {
+            handleSAFavFiles(e.target.files);
+            e.target.value = '';
+        });
+    }
+
+    // Favoritlista textarea debounce
+    const favTa = document.getElementById('sa-fav-enr-input');
+    if (favTa) {
+        let debounceTimer;
+        favTa.addEventListener('input', () => {
+            clearTimeout(debounceTimer);
+            debounceTimer = setTimeout(() => {
+                parseSAFavInput();
+                if (saFavFilterMode !== null) { applySAFilters(); renderSupplierAnalysis(); }
+            }, 500);
+        });
+    }
+
+    // Fav update button
+    const favUpdateBtn = document.getElementById('sa-btn-fav-update');
+    if (favUpdateBtn) {
+        favUpdateBtn.addEventListener('click', () => {
+            parseSAFavInput();
+            if (saFavFilterMode !== null) { applySAFilters(); renderSupplierAnalysis(); }
+        });
+    }
+
+    // Fav dropzone drag & drop
+    const favDropzone = document.getElementById('sa-fav-dropzone');
+    if (favDropzone) {
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(evName => {
+            favDropzone.addEventListener(evName, (e) => { e.preventDefault(); e.stopPropagation(); }, false);
+        });
+        ['dragenter', 'dragover'].forEach(evName => {
+            favDropzone.addEventListener(evName, () => favDropzone.classList.add('dragover'), false);
+        });
+        ['dragleave', 'drop'].forEach(evName => {
+            favDropzone.addEventListener(evName, () => favDropzone.classList.remove('dragover'), false);
+        });
+        favDropzone.addEventListener('drop', (e) => {
+            if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                handleSAFavFiles(e.dataTransfer.files);
+            }
+        }, false);
+    }
+
+    // Fav clear / direct / groups
+    const favClearBtn = document.getElementById('sa-btn-fav-clear');
+    if (favClearBtn) favClearBtn.addEventListener('click', clearSAFavList);
+    const favDirectBtn = document.getElementById('sa-btn-fav-direct');
+    if (favDirectBtn) favDirectBtn.addEventListener('click', applySAFavDirect);
+    const favGroupsBtn = document.getElementById('sa-btn-fav-groups');
+    if (favGroupsBtn) favGroupsBtn.addEventListener('click', applySAFavGroups);
+
+    // Build category checkboxes
+    buildSACategoryCheckboxes();
+}
+
+// ─── Apply Filters ─────────────────────────────────────────────────
+
+function applySAFilters() {
+    if (!saResults) return;
+
+    const filters = {
+        markupMin: document.getElementById('sa-f-diff-min')?.value || '',
+        markupMax: document.getElementById('sa-f-diff-max')?.value || '',
+        cheapest: document.getElementById('sa-f-cheapest')?.value || '',
+        groups: (document.getElementById('sa-f-group')?.value || '').trim()
+            ? document.getElementById('sa-f-group').value.split(',').map(g => g.trim()).filter(Boolean)
+            : [],
+        categories: getSACheckedCategories(),
+        priceMin: document.getElementById('sa-f-price-min')?.value || '',
+        priceMax: document.getElementById('sa-f-price-max')?.value || ''
+    };
+
+    let source = saResults.matched;
+
+    // Favoritlista filter
+    if (saFavFilterMode === 'direct' && saFavEnrSet && saFavEnrSet.size > 0) {
+        source = source.filter(a => saFavEnrSet.has(a.enr));
+    } else if (saFavFilterMode === 'groups' && saFavGroupsList.length > 0) {
+        const grpSet = new Set(saFavGroupsList.map(g => g.toUpperCase()));
+        source = source.filter(a => {
+            return Object.values(a.suppliers).some(s => grpSet.has(s.grp.toUpperCase()));
+        });
+    }
+
+    // Read min-articles threshold
+    const minVal = parseInt(document.getElementById('sa-f-min-articles')?.value, 10);
+    saMinArticlesPerGroup = isNaN(minVal) || minVal < 0 ? 0 : minVal;
+
+    // Filter out articles from groups below min-articles threshold
+    if (saMinArticlesPerGroup > 0) {
+        const grpCounts = {};
+        source.forEach(a => {
+            for (const s of Object.values(a.suppliers)) {
+                grpCounts[s.grp] = (grpCounts[s.grp] || 0) + 1;
+            }
+        });
+        source = source.filter(a => {
+            return Object.values(a.suppliers).some(s => (grpCounts[s.grp] || 0) >= saMinArticlesPerGroup);
+        });
+    }
+
+    // Apply engine filters
+    const filtered = filterArticles(source, filters);
+
+    // Recompute group stats from filtered articles
+    saGroups = {};
+    for (const supId of saResults.supplierIds) {
+        saGroups[supId] = computeGroupStats(filtered, supId);
+    }
+
+    // Update filter count
+    const countEl = document.getElementById('sa-filter-count');
+    if (countEl) {
+        const totalArticles = saResults.matched.length;
+        const filteredCount = filtered.length;
+        if (filteredCount < totalArticles) {
+            countEl.textContent = `Filtrerat: ${filteredCount.toLocaleString('sv-SE')} av ${totalArticles.toLocaleString('sv-SE')} artiklar`;
+        } else {
+            countEl.textContent = '';
+        }
+    }
+}
+
+// ─── Category Checkboxes (SA) ──────────────────────────────────────
+
+function buildSACategoryCheckboxes() {
+    const container = document.getElementById('sa-cat-checkboxes');
+    if (!container) return;
+    container.innerHTML = '';
+
+    for (let i = 0; i < 100; i += 10) {
+        const from = String(i).padStart(2, '0');
+        const to = String(i + 9).padStart(2, '0');
+
+        const group = document.createElement('div');
+        group.className = 'cat-group';
+
+        // L1 parent checkbox
+        const l1Label = document.createElement('label');
+        l1Label.className = 'cat-l1';
+        const l1Cb = document.createElement('input');
+        l1Cb.type = 'checkbox';
+        l1Cb.className = 'sa-cat-l1-cb';
+        l1Cb.dataset.start = i;
+        l1Label.appendChild(l1Cb);
+        l1Label.appendChild(document.createTextNode(` ${from}–${to}`));
+
+        // Toggle arrow
+        const toggle = document.createElement('span');
+        toggle.className = 'cat-toggle';
+        toggle.textContent = '▸';
+        toggle.onclick = (e) => {
+            e.preventDefault();
+            const children = group.querySelector('.cat-children');
+            const open = children.style.display !== 'none';
+            children.style.display = open ? 'none' : 'flex';
+            toggle.textContent = open ? '▸' : '▾';
+        };
+        l1Label.prepend(toggle);
+        group.appendChild(l1Label);
+
+        // L2 children container
+        const childrenDiv = document.createElement('div');
+        childrenDiv.className = 'cat-children';
+        childrenDiv.style.display = 'none';
+
+        for (let j = i; j <= i + 9; j++) {
+            const prefix = String(j).padStart(2, '0');
+            const l2Label = document.createElement('label');
+            l2Label.className = 'cat-l2';
+            const l2Cb = document.createElement('input');
+            l2Cb.type = 'checkbox';
+            l2Cb.className = 'sa-cat-l2-cb';
+            l2Cb.value = prefix;
+            l2Cb.addEventListener('change', () => {
+                const siblings = childrenDiv.querySelectorAll('.sa-cat-l2-cb');
+                const allChecked = [...siblings].every(s => s.checked);
+                const someChecked = [...siblings].some(s => s.checked);
+                l1Cb.checked = allChecked;
+                l1Cb.indeterminate = someChecked && !allChecked;
+            });
+            l2Label.appendChild(l2Cb);
+            l2Label.appendChild(document.createTextNode(` ${prefix}`));
+            childrenDiv.appendChild(l2Label);
+        }
+
+        // L1 click toggles all children
+        l1Cb.addEventListener('change', () => {
+            const children = childrenDiv.querySelectorAll('.sa-cat-l2-cb');
+            children.forEach(cb => cb.checked = l1Cb.checked);
+            l1Cb.indeterminate = false;
+        });
+
+        group.appendChild(childrenDiv);
+        container.appendChild(group);
+    }
+}
+
+function getSACheckedCategories() {
+    const checked = document.querySelectorAll('.sa-cat-l2-cb:checked');
+    if (!checked.length) return [];
+    return [...checked].map(cb => cb.value);
+}
+
+function uncheckSACategories() {
+    document.querySelectorAll('.sa-cat-l1-cb, .sa-cat-l2-cb').forEach(cb => {
+        cb.checked = false;
+        cb.indeterminate = false;
+    });
+}
+
+// ─── E-nummer → Rabattgrupp Lookup (SA) ────────────────────────────
+
+function lookupSAEnrGroups() {
+    if (!saResults) return;
+    const enr = (document.getElementById('sa-f-lookup-enr')?.value || '').trim();
+    if (!enr) return;
+
+    const { supplierData, supplierIds } = saResults;
+    const groups = new Set();
+
+    for (const id of supplierIds) {
+        const data = supplierData[id];
+        if (data && data.has(enr)) {
+            groups.add(data.get(enr).grp);
+        }
+    }
+
+    if (groups.size === 0) {
+        alert(`E-nummer ${enr} hittades inte i någon leverantörs prislista.`);
+        return;
+    }
+
+    document.getElementById('sa-f-group').value = [...groups].join(', ');
+    applySAFilters();
+    renderSupplierAnalysis();
+}
+
+// ─── Favoritlista (SA) ────────────────────────────────────────────
+
+function parseSAFavInput() {
+    const ta = document.getElementById('sa-fav-enr-input');
+    const countEl = document.getElementById('sa-fav-count');
+    const umDetails = document.getElementById('sa-fav-unmatched-details');
+    const umSummary = document.getElementById('sa-fav-unmatched-summary');
+    const umList = document.getElementById('sa-fav-unmatched-list');
+
+    if (!ta) return;
+
+    const raw = ta.value;
+    if (!raw.trim()) {
+        saFavEnrSet = null;
+        if (countEl) countEl.textContent = '';
+        if (umDetails) umDetails.style.display = 'none';
+        if (umList) umList.textContent = '';
+        return;
+    }
+
+    const tokens = raw.split(/[\n\r,;\t]+/).map(s => s.trim()).filter(Boolean);
+    const valid = tokens.filter(t => SA_ENR_REGEX.test(t));
+    const uniqueValid = [...new Set(valid)];
+
+    let matchedEnrs = null;
+    if (saResults) {
+        matchedEnrs = new Set(saResults.matched.map(a => a.enr));
+        saFavEnrSet = new Set(uniqueValid.filter(e => matchedEnrs.has(e)));
+    } else {
+        saFavEnrSet = new Set(uniqueValid);
+    }
+
+    const skipped = tokens.length - valid.length;
+    const unmatched = uniqueValid.filter(e => !saFavEnrSet.has(e));
+
+    let label = `${saFavEnrSet.size} E-nummer laddade`;
+    if (skipped > 0) label += `, ${skipped} ogiltiga (ej 7 siffror)`;
+    if (unmatched.length > 0) label += `, ${unmatched.length} utan match`;
+    if (countEl) countEl.textContent = label;
+
+    if (umDetails) {
+        if (unmatched.length > 0) {
+            umDetails.style.display = 'block';
+            if (umSummary) umSummary.textContent = `Visa ${unmatched.length} saknade`;
+            if (umList) umList.textContent = unmatched.join(', ');
+        } else {
+            umDetails.style.display = 'none';
+            if (umList) umList.textContent = '';
+        }
+    }
+}
+
+function handleSAFavFiles(files) {
+    if (!files || files.length === 0) return;
+    const ta = document.getElementById('sa-fav-enr-input');
+    if (!ta) return;
+
+    let filesProcessed = 0;
+    let allText = ta.value;
+    if (allText && !allText.endsWith('\n')) allText += '\n';
+
+    Array.from(files).forEach(file => {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            allText += e.target.result + '\n';
+            filesProcessed++;
+            if (filesProcessed === files.length) {
+                ta.value = allText;
+                parseSAFavInput();
+                if (saFavFilterMode !== null) {
+                    applySAFilters();
+                    renderSupplierAnalysis();
+                }
+            }
+        };
+        reader.readAsText(file);
+    });
+}
+
+function clearSAFavList() {
+    const ta = document.getElementById('sa-fav-enr-input');
+    if (ta) ta.value = '';
+    saFavEnrSet = null;
+    saFavFilterMode = null;
+    saFavGroupsList = [];
+    const countEl = document.getElementById('sa-fav-count');
+    if (countEl) countEl.textContent = '';
+    const umDetails = document.getElementById('sa-fav-unmatched-details');
+    if (umDetails) umDetails.style.display = 'none';
+    const umList = document.getElementById('sa-fav-unmatched-list');
+    if (umList) umList.textContent = '';
+    updateSAFavButtonStyles();
+    applySAFilters();
+    renderSupplierAnalysis();
+}
+
+function applySAFavDirect() {
+    parseSAFavInput();
+    if (!saFavEnrSet || saFavEnrSet.size === 0) {
+        alert('Inga giltiga E-nummer i favoritlistan.');
+        return;
+    }
+    saFavFilterMode = saFavFilterMode === 'direct' ? null : 'direct';
+    updateSAFavButtonStyles();
+    applySAFilters();
+    renderSupplierAnalysis();
+}
+
+function applySAFavGroups() {
+    parseSAFavInput();
+    if (!saFavEnrSet || saFavEnrSet.size === 0 || !saResults) {
+        alert('Inga giltiga E-nummer i favoritlistan.');
+        return;
+    }
+
+    if (saFavFilterMode === 'groups') {
+        saFavFilterMode = null;
+        saFavGroupsList = [];
+        updateSAFavButtonStyles();
+        applySAFilters();
+        renderSupplierAnalysis();
+        return;
+    }
+
+    // Collect groups from fav E-nummers
+    const { supplierData, supplierIds } = saResults;
+    const groups = new Set();
+    for (const enr of saFavEnrSet) {
+        for (const id of supplierIds) {
+            const d = supplierData[id];
+            if (d && d.has(enr)) groups.add(d.get(enr).grp);
+        }
+    }
+    saFavGroupsList = [...groups];
+    saFavFilterMode = 'groups';
+    updateSAFavButtonStyles();
+    applySAFilters();
+    renderSupplierAnalysis();
+}
+
+function updateSAFavButtonStyles() {
+    const directBtn = document.getElementById('sa-btn-fav-direct');
+    const groupsBtn = document.getElementById('sa-btn-fav-groups');
+    if (directBtn) directBtn.classList.toggle('active', saFavFilterMode === 'direct');
+    if (groupsBtn) {
+        groupsBtn.classList.toggle('active', saFavFilterMode === 'groups');
+        groupsBtn.textContent = saFavFilterMode === 'groups' && saFavGroupsList.length > 0
+            ? `Fav: Grupper (${saFavGroupsList.length} st)`
+            : 'Fav: Grupper';
+    }
 }
 
 // ─── Huvud-render ──────────────────────────────────────────────────
