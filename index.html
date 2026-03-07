@@ -163,6 +163,15 @@
                         </svg>
                         Leverantörsanalys
                     </button>
+                    <button id="discount-compare-btn" class="topbar-action-btn" title="Jämför Rabattbrev">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                             <line x1="18" y1="20" x2="18" y2="10"></line>
+                             <line x1="12" y1="20" x2="12" y2="4"></line>
+                             <line x1="6" y1="20" x2="6" y2="14"></line>
+                             <polyline points="2 7 12 17 22 7"></polyline>
+                        </svg>
+                        Jämför Rabattbrev
+                    </button>
                     <button id="export-btn" class="export-btn">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                             stroke-width="2">
@@ -457,60 +466,9 @@
             <details id="sa-filter-panel" class="sa-filter-panel">
                 <summary>Filter</summary>
                 <div class="sa-filter-body">
-                    <!-- Primary row -->
-                    <div class="filter-row filter-row-primary">
-                        <div class="filter-group filter-group-grow">
-                            <label for="sa-f-group">Rabattgrupp</label>
-                            <input type="text" id="sa-f-group" placeholder="t.ex. VVS01">
-                        </div>
-                        <div class="filter-group filter-group-lookup">
-                            <label for="sa-f-lookup-enr">E-nr → grupp</label>
-                            <div class="lookup-row">
-                                <input type="text" id="sa-f-lookup-enr" placeholder="E-nummer">
-                                <button id="sa-btn-lookup-enr" class="btn-lookup"
-                                    title="Hämta rabattgrupp">Hämta</button>
-                            </div>
-                        </div>
-                        <div class="filter-actions">
-                            <button id="sa-btn-apply-filters" class="btn-filter-apply">Filtrera</button>
-                            <button id="sa-btn-reset-filters" class="btn-filter-reset">Rensa</button>
-                        </div>
-                    </div>
-
-                    <!-- Advanced filters -->
-                    <details class="filter-advanced-panel">
-                        <summary>Avancerade filter</summary>
-                        <div class="filter-row filter-row-advanced">
-                            <div class="filter-group">
-                                <label for="sa-f-diff-min">Överpris % min</label>
-                                <input type="number" id="sa-f-diff-min" placeholder="0">
-                            </div>
-                            <div class="filter-group">
-                                <label for="sa-f-diff-max">Överpris % max</label>
-                                <input type="number" id="sa-f-diff-max" placeholder="100">
-                            </div>
-                            <div class="filter-group">
-                                <label for="sa-f-price-min">Pris min (kr)</label>
-                                <input type="number" id="sa-f-price-min" placeholder="0">
-                            </div>
-                            <div class="filter-group">
-                                <label for="sa-f-price-max">Pris max (kr)</label>
-                                <input type="number" id="sa-f-price-max" placeholder="∞">
-                            </div>
-                            <div class="filter-group">
-                                <label for="sa-f-min-articles">Min art/grupp</label>
-                                <input type="number" id="sa-f-min-articles" placeholder="0" min="0" value="">
-                            </div>
-                            <!-- Hidden cheapest select -->
-                            <select id="sa-f-cheapest" style="display:none">
-                                <option value="">Alla</option>
-                            </select>
-                        </div>
-                    </details>
-
                     <!-- Favoritlista Panel -->
-                    <details id="sa-fav-panel" class="fav-panel">
-                        <summary>Favoritlista (E-nummer)</summary>
+                    <details id="sa-fav-panel" class="fav-panel" open>
+                        <summary>Sök rabattgrupper (via E-nummer i fil/urKlipp)</summary>
                         <div class="fav-body">
                             <div class="fav-dropzone" id="sa-fav-dropzone">
                                 <textarea id="sa-fav-enr-input" class="fav-textarea"
@@ -528,8 +486,8 @@
                             </div>
                             <div class="fav-actions">
                                 <button id="sa-btn-fav-update" class="btn-fav-update"
-                                    title="Uppdateras automatiskt vid inmatning">Uppdatera</button>
-                                <button id="sa-btn-fav-clear" class="btn-fav-clear">Rensa</button>
+                                    title="Uppdateras automatiskt vid inmatning">Sök grupper</button>
+                                <button id="sa-btn-fav-clear" class="btn-fav-clear">Rensa sökning</button>
                             </div>
                             <span id="sa-fav-count" class="fav-count"></span>
                             <details id="sa-fav-unmatched-details" style="display:none; margin-top:5px;">
@@ -540,13 +498,6 @@
                                     style="font-size:0.8rem; color: var(--text-secondary); word-break: break-all; margin-top: 5px; max-height: 150px; overflow-y: auto; background: var(--bg-tertiary); padding: 5px; border-radius: 4px;">
                                 </div>
                             </details>
-                            <div class="fav-filters">
-                                <button id="sa-btn-fav-direct" class="btn-preset"
-                                    title="Filtrera till favoritartiklar">Fav:
-                                    Artiklar</button>
-                                <button id="sa-btn-fav-groups" class="btn-preset"
-                                    title="Filtrera till alla grupper i favoriter">Fav: Grupper</button>
-                            </div>
                         </div>
                     </details>
 
@@ -640,6 +591,92 @@
         </div>
     </div>
 
+    <!-- ═══════════════════════════════════════════════════════════
+         SCREEN 7: DISCOUNT COMPARISON / RABATTBREV JÄMFÖRELSE
+         ═══════════════════════════════════════════════════════════ -->
+    <div id="screen-discount-compare" class="screen">
+        <div class="dc-container">
+            <!-- Top Bar -->
+            <div class="dc-topbar">
+                <button id="dc-back-btn" class="back-btn" title="Tillbaka till analys-dashboarden">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <polyline points="15 18 9 12 15 6"></polyline>
+                    </svg>
+                    Visa Analys
+                </button>
+                <div class="topbar-brand">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                         <line x1="18" y1="20" x2="18" y2="10"></line>
+                         <line x1="12" y1="20" x2="12" y2="4"></line>
+                         <line x1="6" y1="20" x2="6" y2="14"></line>
+                         <polyline points="2 7 12 17 22 7"></polyline>
+                    </svg>
+                    Jämför Rabattbrev
+                </div>
+            </div>
+
+            <div class="dc-heading">
+                <h2>Jämför nytt rabattbrev</h2>
+                <p class="dc-heading-sub">Välj en leverantör och ladda upp ett nytt rabattbrev för att snabbt se skillnader i grupper och rabatt-procent (%).</p>
+            </div>
+
+            <!-- Panel for uploading & selecting -->
+            <div class="dc-upload-panel">
+                 <div class="filter-group filter-group-grow" style="max-width:300px;">
+                      <label for="dc-supplier-select">Steg 1. Välj Leverantör</label>
+                      <select id="dc-supplier-select" class="dc-select"></select>
+                 </div>
+                 
+                 <div style="flex-grow:1;">
+                      <label style="display:block; margin-bottom:5px; font-weight:600; font-size:0.85rem;">Steg 2. Ladda upp nytt Rabattbrev</label>
+                      <div class="drop-zone dc-drop-zone" id="dc-dropzone">
+                           <div class="drop-icon">
+                               <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                                   <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                                   <polyline points="17 8 12 3 7 8"></polyline>
+                                   <line x1="12" y1="3" x2="12" y2="15"></line>
+                               </svg>
+                           </div>
+                           <div class="drop-content">
+                               <p class="drop-text" style="font-size:0.9rem;">Dra & släpp filen här eller <button id="dc-browse-btn" class="browse-btn" style="font-size:0.9rem; padding: 0.2rem 0.5rem;">klicka</button></p>
+                           </div>
+                           <input type="file" id="dc-file-input" accept=".txt,.csv" hidden>
+                      </div>
+                      <div id="dc-upload-feedback" class="upload-feedback" style="margin-top: 5px; font-size: 0.85rem;">&nbsp;</div>
+                 </div>
+            </div>
+
+            <!-- KPI Cards -->
+            <div id="dc-kpi-cards" class="sa-kpi-cards" style="display:none; margin-top: 1rem;"></div>
+
+            <!-- Controls (Filter & Copy) -->
+            <div id="dc-controls" class="sa-controls-row" style="display:none; margin-top: 1rem; justify-content: space-between;">
+                <div class="filter-group">
+                    <select id="dc-filter-select" class="dc-select" style="width:auto; padding: 0.4rem 2rem 0.4rem 0.6rem;">
+                        <option value="all">Alla ändringar</option>
+                        <option value="positive">Endast förbättringar (+)</option>
+                        <option value="negative">Endast försämringar (-)</option>
+                        <option value="new">Nya grupper</option>
+                    </select>
+                </div>
+                <button id="dc-copy-btn" class="topbar-action-btn" title="Kopiera visade grupper">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path>
+                        <rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect>
+                    </svg>
+                    Kopiera grupper
+                </button>
+            </div>
+
+            <!-- Table content -->
+            <div id="dc-main" class="sa-main" style="display:none; margin-top:1rem;">
+                <div class="sa-table-wrap">
+                    <div id="dc-group-table" class="sa-group-table"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- App Entry Point -->
     <script type="module">
         import { initUpload } from './upload.js';
@@ -649,6 +686,7 @@
         import { showQuickSearch } from './quicksearch.js';
         import { showBasket, loadBasket, updateBadge } from './basket.js';
         import { initSupplierAnalysis } from './supplier_analysis.js';
+        import { initDiscountCompare } from './discount_compare.js';
 
         // Initialize
         showScreen('upload');
@@ -673,6 +711,19 @@
 
         // Back button from Supplier Analysis
         document.getElementById('sa-back-btn').addEventListener('click', () => {
+            showScreen('results');
+        });
+
+        // Discount Compare button 
+        document.getElementById('discount-compare-btn').addEventListener('click', () => {
+            const r = getResultsData();
+            if (!r) return;
+            showScreen('discount-compare');
+            initDiscountCompare(r);
+        });
+
+        // Back button from Discount Compare
+        document.getElementById('dc-back-btn').addEventListener('click', () => {
             showScreen('results');
         });
 

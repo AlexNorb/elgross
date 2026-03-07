@@ -17,10 +17,7 @@ let saSelectedGroup = null; // För drill-down
 // ─── Filter State ──────────────────────────────────────────────────
 
 let saFiltersInitialized = false;
-let saFavFilterMode = null;    // null | 'direct' | 'groups'
 let saFavEnrSet = null;        // Set of 7-digit E-nummers
-let saFavGroupsList = [];      // Array of group names
-let saMinArticlesPerGroup = 0;
 const SA_ENR_REGEX = /^\d{7}$/;
 
 // ─── Public API ────────────────────────────────────────────────────
@@ -118,61 +115,7 @@ function setupSAFilters() {
     if (saFiltersInitialized) return;
     saFiltersInitialized = true;
 
-    // Cheapest select — populate dynamically
-    const cheapestSelect = document.getElementById('sa-f-cheapest');
-    if (cheapestSelect && saResults) {
-        let opts = '<option value="">Alla</option>';
-        for (const id of saResults.supplierIds) {
-            opts += `<option value="${id}">${SUPPLIERS[id].name}</option>`;
-        }
-        cheapestSelect.innerHTML = opts;
-    }
-
-    // Apply button
-    const applyBtn = document.getElementById('sa-btn-apply-filters');
-    if (applyBtn) applyBtn.addEventListener('click', () => {
-        applySAFilters();
-        renderSupplierAnalysis();
-    });
-
-    // Enter key on all filter inputs
-    document.querySelectorAll('#sa-filter-panel input, #sa-filter-panel select').forEach(el => {
-        el.addEventListener('keydown', e => {
-            if (e.key === 'Enter') { applySAFilters(); renderSupplierAnalysis(); }
-        });
-    });
-
-    // Reset
-    const resetBtn = document.getElementById('sa-btn-reset-filters');
-    if (resetBtn) resetBtn.addEventListener('click', () => {
-        ['sa-f-group', 'sa-f-lookup-enr', 'sa-f-diff-min', 'sa-f-diff-max',
-            'sa-f-price-min', 'sa-f-price-max', 'sa-f-min-articles'].forEach(id => {
-                const el = document.getElementById(id);
-                if (el) el.value = '';
-            });
-        const cheapest = document.getElementById('sa-f-cheapest');
-        if (cheapest) cheapest.selectedIndex = 0;
-        saFavFilterMode = null;
-        saFavEnrSet = null;
-        saFavGroupsList = [];
-        saMinArticlesPerGroup = 0;
-        updateSAFavButtonStyles();
-        const favTa = document.getElementById('sa-fav-enr-input');
-        if (favTa) favTa.value = '';
-        const favCount = document.getElementById('sa-fav-count');
-        if (favCount) favCount.textContent = '';
-        uncheckSACategories();
-        applySAFilters();
-        renderSupplierAnalysis();
-    });
-
-    // E-nummer → Rabattgrupp lookup
-    const lookupBtn = document.getElementById('sa-btn-lookup-enr');
-    const lookupInput = document.getElementById('sa-f-lookup-enr');
-    if (lookupBtn) lookupBtn.addEventListener('click', lookupSAEnrGroups);
-    if (lookupInput) lookupInput.addEventListener('keydown', e => {
-        if (e.key === 'Enter') lookupSAEnrGroups();
-    });
+    // Filters setup (Category checkboxes are built below)
 
     // Favoritlista file input
     const favFileInput = document.getElementById('sa-fav-file-input');
@@ -191,7 +134,7 @@ function setupSAFilters() {
             clearTimeout(debounceTimer);
             debounceTimer = setTimeout(() => {
                 parseSAFavInput();
-                if (saFavFilterMode !== null) { applySAFilters(); renderSupplierAnalysis(); }
+                applySAFilters(); renderSupplierAnalysis();
             }, 500);
         });
     }
@@ -201,7 +144,7 @@ function setupSAFilters() {
     if (favUpdateBtn) {
         favUpdateBtn.addEventListener('click', () => {
             parseSAFavInput();
-            if (saFavFilterMode !== null) { applySAFilters(); renderSupplierAnalysis(); }
+            applySAFilters(); renderSupplierAnalysis();
         });
     }
 
@@ -224,13 +167,9 @@ function setupSAFilters() {
         }, false);
     }
 
-    // Fav clear / direct / groups
+    // Fav clear
     const favClearBtn = document.getElementById('sa-btn-fav-clear');
     if (favClearBtn) favClearBtn.addEventListener('click', clearSAFavList);
-    const favDirectBtn = document.getElementById('sa-btn-fav-direct');
-    if (favDirectBtn) favDirectBtn.addEventListener('click', applySAFavDirect);
-    const favGroupsBtn = document.getElementById('sa-btn-fav-groups');
-    if (favGroupsBtn) favGroupsBtn.addEventListener('click', applySAFavGroups);
 
     // Build category checkboxes
     buildSACategoryCheckboxes();
@@ -242,43 +181,27 @@ function applySAFilters() {
     if (!saResults) return;
 
     const filters = {
-        markupMin: document.getElementById('sa-f-diff-min')?.value || '',
-        markupMax: document.getElementById('sa-f-diff-max')?.value || '',
-        cheapest: document.getElementById('sa-f-cheapest')?.value || '',
-        groups: (document.getElementById('sa-f-group')?.value || '').trim()
-            ? document.getElementById('sa-f-group').value.split(',').map(g => g.trim()).filter(Boolean)
-            : [],
         categories: getSACheckedCategories(),
-        priceMin: document.getElementById('sa-f-price-min')?.value || '',
-        priceMax: document.getElementById('sa-f-price-max')?.value || ''
     };
 
     let source = saResults.matched;
 
-    // Favoritlista filter
-    if (saFavFilterMode === 'direct' && saFavEnrSet && saFavEnrSet.size > 0) {
-        source = source.filter(a => saFavEnrSet.has(a.enr));
-    } else if (saFavFilterMode === 'groups' && saFavGroupsList.length > 0) {
-        const grpSet = new Set(saFavGroupsList.map(g => g.toUpperCase()));
-        source = source.filter(a => {
-            return Object.values(a.suppliers).some(s => grpSet.has(s.grp.toUpperCase()));
-        });
-    }
-
-    // Read min-articles threshold
-    const minVal = parseInt(document.getElementById('sa-f-min-articles')?.value, 10);
-    saMinArticlesPerGroup = isNaN(minVal) || minVal < 0 ? 0 : minVal;
-
-    // Filter out articles from groups below min-articles threshold
-    if (saMinArticlesPerGroup > 0) {
-        const grpCounts = {};
-        source.forEach(a => {
-            for (const s of Object.values(a.suppliers)) {
-                grpCounts[s.grp] = (grpCounts[s.grp] || 0) + 1;
+    // Favoritlista filter: sök fram grupper i den aktuella leverantören
+    if (saFavEnrSet && saFavEnrSet.size > 0 && saCurrentSup) {
+        const currentData = saResults.supplierData[saCurrentSup];
+        const targetGroups = new Set();
+        if (currentData) {
+            for (const enr of saFavEnrSet) {
+                if (currentData.has(enr)) {
+                    targetGroups.add(currentData.get(enr).grp);
+                }
             }
-        });
+        }
+        
+        // Behåll endast artiklar som i aktuell leverantör tillhör någon av de funna grupperna
         source = source.filter(a => {
-            return Object.values(a.suppliers).some(s => (grpCounts[s.grp] || 0) >= saMinArticlesPerGroup);
+            const supObj = a.suppliers[saCurrentSup];
+            return supObj && targetGroups.has(supObj.grp);
         });
     }
 
@@ -361,6 +284,7 @@ function buildSACategoryCheckboxes() {
                 const someChecked = [...siblings].some(s => s.checked);
                 l1Cb.checked = allChecked;
                 l1Cb.indeterminate = someChecked && !allChecked;
+                applySAFilters(); renderSupplierAnalysis();
             });
             l2Label.appendChild(l2Cb);
             l2Label.appendChild(document.createTextNode(` ${prefix}`));
@@ -372,6 +296,7 @@ function buildSACategoryCheckboxes() {
             const children = childrenDiv.querySelectorAll('.sa-cat-l2-cb');
             children.forEach(cb => cb.checked = l1Cb.checked);
             l1Cb.indeterminate = false;
+            applySAFilters(); renderSupplierAnalysis();
         });
 
         group.appendChild(childrenDiv);
@@ -392,32 +317,7 @@ function uncheckSACategories() {
     });
 }
 
-// ─── E-nummer → Rabattgrupp Lookup (SA) ────────────────────────────
 
-function lookupSAEnrGroups() {
-    if (!saResults) return;
-    const enr = (document.getElementById('sa-f-lookup-enr')?.value || '').trim();
-    if (!enr) return;
-
-    const { supplierData, supplierIds } = saResults;
-    const groups = new Set();
-
-    for (const id of supplierIds) {
-        const data = supplierData[id];
-        if (data && data.has(enr)) {
-            groups.add(data.get(enr).grp);
-        }
-    }
-
-    if (groups.size === 0) {
-        alert(`E-nummer ${enr} hittades inte i någon leverantörs prislista.`);
-        return;
-    }
-
-    document.getElementById('sa-f-group').value = [...groups].join(', ');
-    applySAFilters();
-    renderSupplierAnalysis();
-}
 
 // ─── Favoritlista (SA) ────────────────────────────────────────────
 
@@ -488,10 +388,8 @@ function handleSAFavFiles(files) {
             if (filesProcessed === files.length) {
                 ta.value = allText;
                 parseSAFavInput();
-                if (saFavFilterMode !== null) {
-                    applySAFilters();
-                    renderSupplierAnalysis();
-                }
+                applySAFilters();
+                renderSupplierAnalysis();
             }
         };
         reader.readAsText(file);
@@ -502,75 +400,15 @@ function clearSAFavList() {
     const ta = document.getElementById('sa-fav-enr-input');
     if (ta) ta.value = '';
     saFavEnrSet = null;
-    saFavFilterMode = null;
-    saFavGroupsList = [];
     const countEl = document.getElementById('sa-fav-count');
     if (countEl) countEl.textContent = '';
     const umDetails = document.getElementById('sa-fav-unmatched-details');
     if (umDetails) umDetails.style.display = 'none';
     const umList = document.getElementById('sa-fav-unmatched-list');
     if (umList) umList.textContent = '';
-    updateSAFavButtonStyles();
     applySAFilters();
     renderSupplierAnalysis();
 }
-
-function applySAFavDirect() {
-    parseSAFavInput();
-    if (!saFavEnrSet || saFavEnrSet.size === 0) {
-        alert('Inga giltiga E-nummer i favoritlistan.');
-        return;
-    }
-    saFavFilterMode = saFavFilterMode === 'direct' ? null : 'direct';
-    updateSAFavButtonStyles();
-    applySAFilters();
-    renderSupplierAnalysis();
-}
-
-function applySAFavGroups() {
-    parseSAFavInput();
-    if (!saFavEnrSet || saFavEnrSet.size === 0 || !saResults) {
-        alert('Inga giltiga E-nummer i favoritlistan.');
-        return;
-    }
-
-    if (saFavFilterMode === 'groups') {
-        saFavFilterMode = null;
-        saFavGroupsList = [];
-        updateSAFavButtonStyles();
-        applySAFilters();
-        renderSupplierAnalysis();
-        return;
-    }
-
-    // Collect groups from fav E-nummers
-    const { supplierData, supplierIds } = saResults;
-    const groups = new Set();
-    for (const enr of saFavEnrSet) {
-        for (const id of supplierIds) {
-            const d = supplierData[id];
-            if (d && d.has(enr)) groups.add(d.get(enr).grp);
-        }
-    }
-    saFavGroupsList = [...groups];
-    saFavFilterMode = 'groups';
-    updateSAFavButtonStyles();
-    applySAFilters();
-    renderSupplierAnalysis();
-}
-
-function updateSAFavButtonStyles() {
-    const directBtn = document.getElementById('sa-btn-fav-direct');
-    const groupsBtn = document.getElementById('sa-btn-fav-groups');
-    if (directBtn) directBtn.classList.toggle('active', saFavFilterMode === 'direct');
-    if (groupsBtn) {
-        groupsBtn.classList.toggle('active', saFavFilterMode === 'groups');
-        groupsBtn.textContent = saFavFilterMode === 'groups' && saFavGroupsList.length > 0
-            ? `Fav: Grupper (${saFavGroupsList.length} st)`
-            : 'Fav: Grupper';
-    }
-}
-
 // ─── Huvud-render ──────────────────────────────────────────────────
 
 function renderSupplierAnalysis() {
@@ -601,6 +439,7 @@ function renderSupTabs() {
         btn.addEventListener('click', () => {
             saCurrentSup = supId;
             saSelectedGroup = null;
+            applySAFilters();
             renderSupTabs();
             renderKPICards();
             renderGroupTable();
